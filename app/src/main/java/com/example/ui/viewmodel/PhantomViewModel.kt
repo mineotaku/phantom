@@ -55,7 +55,7 @@ class PhantomViewModel(
     val loginSuccessSplash = MutableStateFlow(false)
     val otpTimerSeconds = MutableStateFlow(60)
     val activeSessionToken = MutableStateFlow("")
-    val serverHost = MutableStateFlow("10.0.2.2:8080")
+    val serverHost = MutableStateFlow("phantom-pu9t.onrender.com")
 
     val smtpRelayLogs = mutableStateListOf<String>()
     val showSmtpRelayLogs = MutableStateFlow(false)
