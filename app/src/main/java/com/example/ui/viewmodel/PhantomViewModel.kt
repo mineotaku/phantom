@@ -5,7 +5,6 @@ import androidx.biometric.BiometricPrompt
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
@@ -182,7 +181,7 @@ class PhantomViewModel(
                                         partner.lastMessage,
                                         partner.time,
                                         0,
-                                        partner.avatarColor.toArgb(),
+                                        partner.avatarColor.value.toInt(),
                                         partner.isOnline,
                                         partner.publicKey
                                     )
@@ -212,6 +211,17 @@ class PhantomViewModel(
         pollIncomingMessages()
     }
 
+    // --- Helper to dynamically choose between secure HTTPS (Render) and local HTTP (emulator/LAN) ---
+    private fun getServerUrl(path: String): String {
+        val host = serverHost.value.trim()
+        val scheme = if (host.contains("10.0.2.2") || host.contains("192.168") || host.contains("localhost") || host.contains("127.0.0.1") || host.contains(":")) {
+            "http"
+        } else {
+            "https"
+        }
+        return "$scheme://$host$path"
+    }
+
     // --- Helper for network logging ---
     fun addLog(type: String, description: String) {
         networkLogs.add(0, NetworkLog(System.currentTimeMillis(), type, description))
@@ -238,13 +248,12 @@ class PhantomViewModel(
             smtpRelayLogs.add("SEC: TLS cipher suite ECDHE-RSA-AES256-GCM negotiated.")
             delay(300)
 
-            val host = serverHost.value
             val client = OkHttpClient()
             val mediaType = "application/json; charset=utf-8".toMediaTypeOrNull()
             val jsonPayload = """{"email": "$email"}"""
             val body = RequestBody.create(mediaType, jsonPayload)
             val request = Request.Builder()
-                .url("http://$host/api/otp/request")
+                .url(getServerUrl("/api/otp/request"))
                 .post(body)
                 .build()
 
@@ -267,7 +276,6 @@ class PhantomViewModel(
 
                 if (isSuccess) {
                     if (serverOtp != null) {
-                        // Real email SMTP not configured on server, using fallback code
                         generatedOtpCode.value = serverOtp
                         smtpRelayLogs.add("SUCCESS: Local Fallback Active (Real SMTP App key missing).")
                         loginErrorMsg.value = "Local Fallback Code: $serverOtp (Check laptop terminal)"
@@ -281,8 +289,8 @@ class PhantomViewModel(
                     loginErrorMsg.value = "Dispatch failed: $serverError"
                 }
             } else {
-                smtpRelayLogs.add("ERROR: Connection failed to http://$host")
-                loginErrorMsg.value = "Could not connect to laptop server. Make sure it is running!"
+                smtpRelayLogs.add("ERROR: Connection failed to ${getServerUrl("")}")
+                loginErrorMsg.value = "Could not connect to server. Check server status!"
             }
             otpTimerSeconds.value = 60
         }
@@ -291,7 +299,6 @@ class PhantomViewModel(
     // --- Verify OTP code ---
     fun verifyOtpCode(inputCode: String) {
         viewModelScope.launch {
-            val host = serverHost.value
             val client = OkHttpClient()
             val mediaType = "application/json; charset=utf-8".toMediaTypeOrNull()
             val jsonPayload = """
@@ -302,7 +309,7 @@ class PhantomViewModel(
             """.trimIndent()
             val body = RequestBody.create(mediaType, jsonPayload)
             val request = Request.Builder()
-                .url("http://$host/api/otp/verify")
+                .url(getServerUrl("/api/otp/verify"))
                 .post(body)
                 .build()
 
@@ -418,7 +425,7 @@ class PhantomViewModel(
         }
     }
 
-    // --- Real AES-256-GCM E2EE send pipeline with laptop server relay ---
+    // --- Real AES-256-GCM E2EE send pipeline with server relay ---
     fun encryptAndSendMessage(rawMessage: String, partner: ChatUser) {
         viewModelScope.launch {
             isEncryptingInProgress.value = true
@@ -447,8 +454,8 @@ class PhantomViewModel(
             delay(250)
 
             // Compute HMAC-SHA256 for the MAC code
-            val hmacSig = hmacSha256(ciphertextHex, sharedKey.encoded).take(16)
-            val macCode = "hmac_sha256_$hmacSig"
+            val hmacBytes = hmacSha256(ciphertextHex, sharedKey.encoded).take(16)
+            val macCode = "hmac_sha256_$hmacBytes"
             activePipelineSteps.add(CryptoPipelineStep("HMAC Authenticator Signature", Icons.Default.Fingerprint, macCode, "Seal with key-hashed MAC verification code.", Color(0xFF43493E)))
             activePipelineStep.value = 4
             delay(300)
@@ -495,8 +502,6 @@ class PhantomViewModel(
                 )
             )
 
-            // Relaying E2EE envelope payload to laptop server database
-            val host = serverHost.value
             val client = OkHttpClient()
             val myShortName = loginEmail.value.substringBefore("@")
             val jsonPayload = """
@@ -512,7 +517,7 @@ class PhantomViewModel(
             """.trimIndent()
             val body = RequestBody.create("application/json; charset=utf-8".toMediaTypeOrNull(), jsonPayload)
             val request = Request.Builder()
-                .url("http://$host/api/messages/send")
+                .url(getServerUrl("/api/messages/send"))
                 .post(body)
                 .build()
 
@@ -526,7 +531,7 @@ class PhantomViewModel(
             }
 
             if (success) {
-                addLog("NET", "Relayed secure envelope sent successfully to $host.")
+                addLog("NET", "Relayed secure envelope sent successfully to ${serverHost.value}.")
             } else {
                 addLog("NET", "Server offline. Transmission queued locally in offline queue.")
                 serverQueue.add(finalMsg)
@@ -551,7 +556,7 @@ class PhantomViewModel(
                     lastText,
                     lastTime,
                     0,
-                    partner.avatarColor.toArgb(),
+                    partner.avatarColor.value.toInt(),
                     partner.isOnline,
                     partner.publicKey
                 )
@@ -565,8 +570,8 @@ class PhantomViewModel(
             val senderName = loginEmail.value.substringBefore("@")
             val sharedKey = CryptoUtils.getSharedKey(senderName, partner.name)
             val newCipher = CryptoUtils.encrypt(newText, sharedKey)
-            val hmacSig = hmacSha256(newCipher, sharedKey.encoded).take(16)
-            val macCode = "hmac_sha256_$hmacSig"
+            val hmacBytes = hmacSha256(newCipher, sharedKey.encoded).take(16)
+            val macCode = "hmac_sha256_$hmacBytes"
 
             repository.insertMessage(
                 RoomChatMessage(
@@ -599,8 +604,8 @@ class PhantomViewModel(
             val senderNameShort = loginEmail.value.substringBefore("@")
             val sharedKey = CryptoUtils.getSharedKey(senderName, senderNameShort)
             val ciphertextHex = CryptoUtils.encrypt(text, sharedKey)
-            val hmacSig = hmacSha256(ciphertextHex, sharedKey.encoded).take(16)
-            val macCode = "hmac_sha256_$hmacSig"
+            val hmacBytes = hmacSha256(ciphertextHex, sharedKey.encoded).take(16)
+            val macCode = "hmac_sha256_$hmacBytes"
             val timestamp = SimpleDateFormat("h:mm a", Locale.getDefault()).format(Date())
 
             val finalMsg = ChatMessage(
@@ -638,7 +643,7 @@ class PhantomViewModel(
                     text,
                     timestamp,
                     unreadCount,
-                    partner.avatarColor.toArgb(),
+                    partner.avatarColor.value.toInt(),
                     partner.isOnline,
                     partner.publicKey
                 )
@@ -651,10 +656,9 @@ class PhantomViewModel(
     // --- Sync contact list from the server ---
     fun syncContactsFromServer() {
         viewModelScope.launch(Dispatchers.IO) {
-            val host = serverHost.value
             val client = OkHttpClient()
             val request = Request.Builder()
-                .url("http://$host/api/users")
+                .url(getServerUrl("/api/users"))
                 .build()
             try {
                 val response = client.newCall(request).execute()
@@ -689,7 +693,6 @@ class PhantomViewModel(
     // --- Register identity on the server ---
     fun registerIdentityOnServer() {
         viewModelScope.launch(Dispatchers.IO) {
-            val host = serverHost.value
             val client = OkHttpClient()
             val myShortName = loginEmail.value.substringBefore("@")
             val jsonPayload = """
@@ -701,7 +704,7 @@ class PhantomViewModel(
             """.trimIndent()
             val body = RequestBody.create("application/json; charset=utf-8".toMediaTypeOrNull(), jsonPayload)
             val request = Request.Builder()
-                .url("http://$host/api/users/register")
+                .url(getServerUrl("/api/users/register"))
                 .post(body)
                 .build()
             try {
@@ -722,22 +725,21 @@ class PhantomViewModel(
             val client = OkHttpClient()
             while (true) {
                 if (isLoggedIn.value) {
-                    val host = serverHost.value
                     val myShortName = loginEmail.value.substringBefore("@")
                     val request = Request.Builder()
-                        .url("http://$host/api/messages/poll?user=$myShortName")
+                        .url(getServerUrl("/api/messages/poll?user=$myShortName"))
                         .build()
                     try {
                         val response = client.newCall(request).execute()
                         if (response.isSuccessful) {
                             val body = response.body?.string() ?: "[]"
-                            val msgMatches = "\"id\":\"([^\"]+)\"[^}]*\"sender\":\"([^\"]+)\"[^}]*\"ciphertext\":\"([^\"]+)\"[^}]*\"mac\":\"([^\"]+)\"[^}]*\"timestamp\":\"([^\"]+)\"".toRegex().findAll(body)
+                            val msgMatches = "\"id\":\"([^\"]+)\"[^}]*\"sender\":\"([^\"]+)\"[^}]*\"ciphertext\":\"([^\"]+)\"[^}]*\"mac\":\"([^\"]+)\"".toRegex().findAll(body)
                             msgMatches.forEach { match ->
                                 val id = match.groupValues[1]
                                 val sender = match.groupValues[2]
                                 val ciphertext = match.groupValues[3]
                                 val mac = match.groupValues[4]
-                                val timestamp = match.groupValues[5]
+                                val timestamp = SimpleDateFormat("h:mm a", Locale.getDefault()).format(Date())
 
                                 // Decrypt using derived shared key specific to sender/recipient pair
                                 val decryptedText = try {
@@ -756,25 +758,21 @@ class PhantomViewModel(
                                     timestamp = timestamp,
                                     isEncrypted = true,
                                     isDelivered = true,
-                                    isRead = (selectedChatUser.value?.name == sender),
+                                    isRead = false,
                                     chatPartner = sender
                                 )
                                 repository.insertMessage(incomingMsg)
 
                                 // Ensure sender user exists in local contact list
-                                val existingUser = _mockUsers.value.find { it.name == sender }
-                                val isCurrentChat = selectedChatUser.value?.name == sender
-                                val newUnreadCount = if (isCurrentChat) 0 else (existingUser?.unreadCount ?: 0) + 1
-
                                 repository.insertUser(
                                     RoomChatUser(
                                         sender,
                                         decryptedText,
                                         timestamp,
-                                        newUnreadCount,
-                                        existingUser?.avatarColor?.toArgb() ?: 0xFF81C784.toInt(),
+                                        1,
+                                        0xFF81C784.toInt(),
                                         true,
-                                        existingUser?.publicKey ?: "id_pub_relayed"
+                                        "id_pub_relayed"
                                     )
                                 )
 
