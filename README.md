@@ -1,7 +1,3 @@
-<div align="center">
-<img width="1200" height="475" alt="GHBanner" src="https://ai.google.dev/static/site-assets/images/share-ais-513315318.png" />
-</div>
-
 # Phantom — Privacy-First Secure E2EE Messenger
 
 Phantom is an Android messaging application that demonstrates a full end-to-end encryption workflow inspired by the Signal Protocol. It features a real-time cryptographic pipeline visualization, local Room database persistence, OTP-based email authentication via FormSubmit, and a multi-tab security console.
