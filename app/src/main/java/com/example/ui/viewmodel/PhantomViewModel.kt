@@ -34,6 +34,7 @@ import okhttp3.RequestBody
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import java.util.concurrent.TimeUnit
 import javax.crypto.Mac
 import javax.crypto.spec.SecretKeySpec
 import kotlin.random.Random
@@ -42,6 +43,13 @@ class PhantomViewModel(
     application: Application,
     private val repository: PhantomRepository
 ) : AndroidViewModel(application) {
+
+    // --- Share single, optimized OkHttpClient with 60-second timeouts for Render cold starts ---
+    private val client = OkHttpClient.Builder()
+        .connectTimeout(60, TimeUnit.SECONDS)
+        .readTimeout(60, TimeUnit.SECONDS)
+        .writeTimeout(60, TimeUnit.SECONDS)
+        .build()
 
     // --- Authentication States ---
     val isLoggedIn = MutableStateFlow(false)
@@ -248,7 +256,6 @@ class PhantomViewModel(
             smtpRelayLogs.add("SEC: TLS cipher suite ECDHE-RSA-AES256-GCM negotiated.")
             delay(300)
 
-            val client = OkHttpClient()
             val mediaType = "application/json; charset=utf-8".toMediaTypeOrNull()
             val jsonPayload = """{"email": "$email"}"""
             val body = RequestBody.create(mediaType, jsonPayload)
@@ -299,7 +306,6 @@ class PhantomViewModel(
     // --- Verify OTP code ---
     fun verifyOtpCode(inputCode: String) {
         viewModelScope.launch {
-            val client = OkHttpClient()
             val mediaType = "application/json; charset=utf-8".toMediaTypeOrNull()
             val jsonPayload = """
                 {
@@ -502,7 +508,6 @@ class PhantomViewModel(
                 )
             )
 
-            val client = OkHttpClient()
             val myShortName = loginEmail.value.substringBefore("@")
             val jsonPayload = """
                 {
@@ -656,7 +661,6 @@ class PhantomViewModel(
     // --- Sync contact list from the server ---
     fun syncContactsFromServer() {
         viewModelScope.launch(Dispatchers.IO) {
-            val client = OkHttpClient()
             val request = Request.Builder()
                 .url(getServerUrl("/api/users"))
                 .build()
@@ -693,7 +697,6 @@ class PhantomViewModel(
     // --- Register identity on the server ---
     fun registerIdentityOnServer() {
         viewModelScope.launch(Dispatchers.IO) {
-            val client = OkHttpClient()
             val myShortName = loginEmail.value.substringBefore("@")
             val jsonPayload = """
                 {
@@ -722,7 +725,6 @@ class PhantomViewModel(
     // --- Poll incoming E2EE messages targeted for our user ---
     private fun pollIncomingMessages() {
         viewModelScope.launch(Dispatchers.IO) {
-            val client = OkHttpClient()
             while (true) {
                 if (isLoggedIn.value) {
                     val myShortName = loginEmail.value.substringBefore("@")
