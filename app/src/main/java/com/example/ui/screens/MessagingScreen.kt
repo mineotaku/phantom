@@ -441,6 +441,28 @@ fun ChatDetailScreen(
         }
     }
 
+    val pickImageIntentLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        if (result.resultCode == android.app.Activity.RESULT_OK) {
+            val uri = result.data?.data
+            if (uri != null) {
+                viewModel.uploadMediaAndSendMessage(uri, "image", partner)
+            }
+        }
+    }
+
+    val pickVideoIntentLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        if (result.resultCode == android.app.Activity.RESULT_OK) {
+            val uri = result.data?.data
+            if (uri != null) {
+                viewModel.uploadMediaAndSendMessage(uri, "video", partner)
+            }
+        }
+    }
+
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -717,7 +739,15 @@ fun ChatDetailScreen(
                                 try {
                                     legacyPhotoLauncher.launch("image/*")
                                 } catch (e2: Exception) {
-                                    android.widget.Toast.makeText(context, "No gallery app found on this device", android.widget.Toast.LENGTH_SHORT).show()
+                                    try {
+                                        val intent = Intent(
+                                            Intent.ACTION_PICK,
+                                            android.provider.MediaStore.Images.Media.EXTERNAL_CONTENT_URI
+                                        )
+                                        pickImageIntentLauncher.launch(intent)
+                                    } catch (e3: Exception) {
+                                        android.widget.Toast.makeText(context, "No gallery or media selector app found on this device", android.widget.Toast.LENGTH_SHORT).show()
+                                    }
                                 }
                             }
                         }
@@ -736,7 +766,15 @@ fun ChatDetailScreen(
                                 try {
                                     legacyVideoLauncher.launch("video/*")
                                 } catch (e2: Exception) {
-                                    android.widget.Toast.makeText(context, "No gallery app found on this device", android.widget.Toast.LENGTH_SHORT).show()
+                                    try {
+                                        val intent = Intent(
+                                            Intent.ACTION_PICK,
+                                            android.provider.MediaStore.Video.Media.EXTERNAL_CONTENT_URI
+                                        )
+                                        pickVideoIntentLauncher.launch(intent)
+                                    } catch (e3: Exception) {
+                                        android.widget.Toast.makeText(context, "No gallery or media selector app found on this device", android.widget.Toast.LENGTH_SHORT).show()
+                                    }
                                 }
                             }
                         }
