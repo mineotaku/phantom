@@ -210,7 +210,30 @@ def send_otp_email_via_resend(email: str, otp_code: str, api_key: str) -> None:
         raise RuntimeError(f"Resend API error: {e.code} - {error_body}")
 
 
+def send_otp_email_via_gmail_relay(email: str, otp_code: str, relay_url: str) -> None:
+    headers = {"Content-Type": "application/json"}
+    payload = {
+        "to": email,
+        "subject": "Phantom verification code",
+        "text": f"Hello,\n\nYour Phantom verification code is: {otp_code}\n\nThis code expires shortly. If you did not request it, ignore this email.\n\nPhantom Security"
+    }
+    data = json.dumps(payload).encode("utf-8")
+    req = urllib.request.Request(relay_url, data=data, headers=headers, method="POST")
+    try:
+        with urllib.request.urlopen(req) as res:
+            if res.status not in (200, 201):
+                raise RuntimeError(f"Gmail relay returned status code {res.status}")
+    except urllib.error.HTTPError as e:
+        error_body = e.read().decode("utf-8")
+        raise RuntimeError(f"Gmail relay API error: {e.code} - {error_body}")
+
+
 def send_otp_email(email: str, otp_code: str) -> None:
+    gmail_relay_url = os.environ.get("GMAIL_RELAY_URL", "")
+    if gmail_relay_url:
+        send_otp_email_via_gmail_relay(email, otp_code, gmail_relay_url)
+        return
+
     resend_api_key = os.environ.get("RESEND_API_KEY", "")
     if resend_api_key:
         send_otp_email_via_resend(email, otp_code, resend_api_key)
