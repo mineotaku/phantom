@@ -169,28 +169,15 @@ class PhantomViewModel(
                 addLog("SYS", "No active session. Initializing secure registration environment.")
             }
 
-            // Database Sync: Seed and monitor Users
+            // Database Sync: Monitor Users and map to UI state
             launch {
                 repository.getAllUsersFlow().collectLatest { roomUsers ->
-                    if (roomUsers.isEmpty()) {
-                        val initialUsers = listOf(
-                            RoomChatUser("Ethan", "The new sides for the de...", "Now", 15, 0xFFE57373.toInt(), true, "id_pub_ethan_83cd9"),
-                            RoomChatUser("Grace Tandan", "Some great new colours", "8:05 PM", 0, 0xFF4FC3F7.toInt(), true, "id_pub_grace_4b312"),
-                            RoomChatUser("Lori Susan", "it was fun to work on", "8:05 PM", 2, 0xFF81C784.toInt(), true, "id_pub_lori_9d21e"),
-                            RoomChatUser("JM-Google", "Some great new colours...", "8:05 PM", 12, 0xFFFFD54F.toInt(), true, "id_pub_jm_73da1"),
-                            RoomChatUser("Lauren Alan", "A new material?", "8:05 PM", 0, 0xFFFFB74D.toInt(), true, "id_pub_lauren_0f2b3"),
-                            RoomChatUser("Andy Christian", "So on Friday we were we...", "8:05 PM", 0, 0xFFBA68C8.toInt(), true, "id_pub_andy_27bc4"),
-                            RoomChatUser("DM-Notify", "A new material?", "8:05 PM", 99, 0xFFF06292.toInt(), true, "id_pub_dm_83af2")
-                        )
-                        repository.insertUsers(initialUsers)
-                    } else {
-                        val list = roomUsers.map {
-                            ChatUser(it.name, it.lastMessage, it.time, it.unreadCount, Color(it.avatarColorHex), it.isOnline, it.publicKey)
-                        }
-                        _mockUsers.value = list
-                        if (selectedChatUser.value == null && list.isNotEmpty()) {
-                            selectedChatUser.value = list[0]
-                        }
+                    val list = roomUsers.map {
+                        ChatUser(it.name, it.lastMessage, it.time, it.unreadCount, Color(it.avatarColorHex), it.isOnline, it.publicKey)
+                    }
+                    _mockUsers.value = list
+                    if (selectedChatUser.value == null && list.isNotEmpty()) {
+                        selectedChatUser.value = list[0]
                     }
                 }
             }
