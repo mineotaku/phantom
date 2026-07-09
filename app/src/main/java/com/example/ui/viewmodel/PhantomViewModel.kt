@@ -299,13 +299,18 @@ class PhantomViewModel(
                 .post(body)
                 .build()
 
+            var errorDetails: String? = null
             val responseBody = withContext(Dispatchers.IO) {
                 try {
                     val response = client.newCall(request).execute()
                     if (response.isSuccessful) {
                         response.body?.string()
-                    } else null
+                    } else {
+                        errorDetails = "Server HTTP code: ${response.code}"
+                        null
+                    }
                 } catch (e: Exception) {
+                    errorDetails = e.message ?: e.toString()
                     null
                 }
             }
@@ -332,7 +337,8 @@ class PhantomViewModel(
                     loginErrorMsg.value = "Dispatch failed: $serverError"
                 }
             } else {
-                smtpRelayLogs.add("ERROR: Connection failed to ${getServerUrl("")}")
+                val detailSuffix = if (errorDetails != null) " ($errorDetails)" else ""
+                smtpRelayLogs.add("ERROR: Connection failed to ${getServerUrl("")}$detailSuffix")
                 loginErrorMsg.value = "Could not connect to server. Check server status!"
             }
             otpTimerSeconds.value = 60
