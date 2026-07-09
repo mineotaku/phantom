@@ -410,6 +410,14 @@ fun ChatDetailScreen(
     var showAttachmentMenu by remember { mutableStateOf(false) }
 
     val photoLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.PickVisualMedia()
+    ) { uri: Uri? ->
+        if (uri != null) {
+            viewModel.uploadMediaAndSendMessage(uri, "image", partner)
+        }
+    }
+
+    val legacyPhotoLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.GetContent()
     ) { uri: Uri? ->
         if (uri != null) {
@@ -418,6 +426,14 @@ fun ChatDetailScreen(
     }
 
     val videoLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.PickVisualMedia()
+    ) { uri: Uri? ->
+        if (uri != null) {
+            viewModel.uploadMediaAndSendMessage(uri, "video", partner)
+        }
+    }
+
+    val legacyVideoLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.GetContent()
     ) { uri: Uri? ->
         if (uri != null) {
@@ -691,14 +707,38 @@ fun ChatDetailScreen(
                         text = { Text("📷 Send Photo", color = PhantomTextPrimary) },
                         onClick = {
                             showAttachmentMenu = false
-                            photoLauncher.launch("image/*")
+                            try {
+                                photoLauncher.launch(
+                                    androidx.activity.result.PickVisualMediaRequest(
+                                        ActivityResultContracts.PickVisualMedia.ImageOnly
+                                    )
+                                )
+                            } catch (e: Exception) {
+                                try {
+                                    legacyPhotoLauncher.launch("image/*")
+                                } catch (e2: Exception) {
+                                    android.widget.Toast.makeText(context, "No gallery app found on this device", android.widget.Toast.LENGTH_SHORT).show()
+                                }
+                            }
                         }
                     )
                     DropdownMenuItem(
                         text = { Text("🎥 Send Video", color = PhantomTextPrimary) },
                         onClick = {
                             showAttachmentMenu = false
-                            videoLauncher.launch("video/*")
+                            try {
+                                videoLauncher.launch(
+                                    androidx.activity.result.PickVisualMediaRequest(
+                                        ActivityResultContracts.PickVisualMedia.VideoOnly
+                                    )
+                                )
+                            } catch (e: Exception) {
+                                try {
+                                    legacyVideoLauncher.launch("video/*")
+                                } catch (e2: Exception) {
+                                    android.widget.Toast.makeText(context, "No gallery app found on this device", android.widget.Toast.LENGTH_SHORT).show()
+                                }
+                            }
                         }
                     )
                 }
