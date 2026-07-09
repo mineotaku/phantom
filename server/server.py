@@ -7,6 +7,9 @@ from datetime import datetime, timedelta
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from typing import Generator
+import urllib.request
+import urllib.error
+import json
 
 from fastapi import Depends, FastAPI, HTTPException, Query, Security, status
 from fastapi.middleware.cors import CORSMiddleware
@@ -184,7 +187,35 @@ def smtp_connection():
         server.quit()
 
 
+def send_otp_email_via_resend(email: str, otp_code: str, api_key: str) -> None:
+    url = "https://api.resend.com/emails"
+    headers = {
+        "Authorization": f"Bearer {api_key}",
+        "Content-Type": "application/json"
+    }
+    payload = {
+        "from": "Phantom Security <onboarding@resend.dev>",
+        "to": [email],
+        "subject": "Phantom verification code",
+        "html": f"<p>Hello,</p><p>Your Phantom verification code is: <strong>{otp_code}</strong></p><p>This code expires shortly. If you did not request it, ignore this email.</p><p>Phantom Security</p>"
+    }
+    data = json.dumps(payload).encode("utf-8")
+    req = urllib.request.Request(url, data=data, headers=headers, method="POST")
+    try:
+        with urllib.request.urlopen(req) as res:
+            if res.status not in (200, 201):
+                raise RuntimeError(f"Resend returned status code {res.status}")
+    except urllib.error.HTTPError as e:
+        error_body = e.read().decode("utf-8")
+        raise RuntimeError(f"Resend API error: {e.code} - {error_body}")
+
+
 def send_otp_email(email: str, otp_code: str) -> None:
+    resend_api_key = os.environ.get("RESEND_API_KEY", "")
+    if resend_api_key:
+        send_otp_email_via_resend(email, otp_code, resend_api_key)
+        return
+
     if not SMTP_EMAIL or not SMTP_PASSWORD:
         raise RuntimeError("SMTP_EMAIL/SMTP_PASSWORD are not configured")
 
