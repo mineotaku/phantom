@@ -41,7 +41,6 @@ fun LoginScreen(viewModel: PhantomViewModel) {
     val loginSuccessSplash by viewModel.loginSuccessSplash.collectAsState()
     val otpTimerSeconds by viewModel.otpTimerSeconds.collectAsState()
     val showSmtpRelayLogs by viewModel.showSmtpRelayLogs.collectAsState()
-    val serverHost by viewModel.serverHost.collectAsState()
     
     Box(
         modifier = Modifier
@@ -135,23 +134,6 @@ fun LoginScreen(viewModel: PhantomViewModel) {
                             )
                             
                             Spacer(modifier = Modifier.height(20.dp))
-                            
-                            OutlinedTextField(
-                                value = serverHost,
-                                onValueChange = { viewModel.serverHost.value = it },
-                                label = { Text("Cryptographic Server Host (IP:Port)") },
-                                leadingIcon = { Icon(Icons.Default.Dns, contentDescription = null, tint = PhantomTertiary) },
-                                singleLine = true,
-                                shape = RoundedCornerShape(12.dp),
-                                colors = OutlinedTextFieldDefaults.colors(
-                                    focusedBorderColor = PhantomSecondary,
-                                    unfocusedBorderColor = PhantomBorder
-                                ),
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                            )
-                            
-                            Spacer(modifier = Modifier.height(16.dp))
                             
                             OutlinedTextField(
                                 value = loginEmail,
