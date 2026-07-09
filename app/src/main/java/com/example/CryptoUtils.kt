@@ -118,4 +118,27 @@ object CryptoUtils {
         val decrypted = cipher.doFinal(ciphertext)
         return String(decrypted, Charsets.UTF_8)
     }
+    fun encryptBytes(data: ByteArray, secretKey: SecretKey): ByteArray {
+        val cipher = Cipher.getInstance(AES_GCM_NOPADDING)
+        cipher.init(Cipher.ENCRYPT_MODE, secretKey)
+        val iv = cipher.iv
+        val ciphertext = cipher.doFinal(data)
+        val combined = ByteArray(iv.size + ciphertext.size)
+        System.arraycopy(iv, 0, combined, 0, iv.size)
+        System.arraycopy(ciphertext, 0, combined, iv.size, ciphertext.size)
+        return combined
+    }
+
+    fun decryptBytes(combined: ByteArray, secretKey: SecretKey): ByteArray {
+        if (combined.size < 12) throw IllegalArgumentException("Payload too short")
+        val iv = ByteArray(12)
+        val ciphertext = ByteArray(combined.size - 12)
+        System.arraycopy(combined, 0, iv, 0, 12)
+        System.arraycopy(combined, 12, ciphertext, 0, ciphertext.size)
+
+        val cipher = Cipher.getInstance(AES_GCM_NOPADDING)
+        val spec = GCMParameterSpec(128, iv)
+        cipher.init(Cipher.DECRYPT_MODE, secretKey, spec)
+        return cipher.doFinal(ciphertext)
+    }
 }

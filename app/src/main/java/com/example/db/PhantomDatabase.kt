@@ -18,6 +18,7 @@ data class RoomChatMessage(
     val ciphertext: String,
     val mac: String,
     val timestamp: String,
+    val timestampMillis: Long,
     val isEncrypted: Boolean,
     val isDelivered: Boolean,
     val isRead: Boolean,
@@ -54,7 +55,7 @@ interface PhantomDao {
     @Query("SELECT * FROM chat_messages")
     fun getAllMessagesFlow(): Flow<List<RoomChatMessage>>
 
-    @Query("SELECT * FROM chat_messages WHERE chatPartner = :partner ORDER BY id ASC")
+    @Query("SELECT * FROM chat_messages WHERE chatPartner = :partner ORDER BY timestampMillis ASC")
     fun getMessagesForPartnerFlow(partner: String): Flow<List<RoomChatMessage>>
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
@@ -62,6 +63,12 @@ interface PhantomDao {
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertMessages(messages: List<RoomChatMessage>)
+
+    @Query("SELECT * FROM chat_messages WHERE id = :id LIMIT 1")
+    suspend fun getMessageById(id: String): RoomChatMessage?
+
+    @Query("SELECT * FROM chat_users WHERE name = :name LIMIT 1")
+    suspend fun getUserByName(name: String): RoomChatUser?
 
     @Query("DELETE FROM chat_messages WHERE id = :id")
     suspend fun deleteMessageById(id: String)
@@ -91,7 +98,7 @@ interface PhantomDao {
     suspend fun clearSession()
 }
 
-@Database(entities = [RoomChatMessage::class, RoomChatUser::class, UserSession::class], version = 3, exportSchema = false)
+@Database(entities = [RoomChatMessage::class, RoomChatUser::class, UserSession::class], version = 4, exportSchema = false)
 abstract class PhantomDatabase : RoomDatabase() {
     abstract fun phantomDao(): PhantomDao
 }

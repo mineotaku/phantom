@@ -1,6 +1,16 @@
 package com.example.ui.screens
 
 import androidx.activity.compose.BackHandler
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import android.graphics.BitmapFactory
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.foundation.Image
+import androidx.compose.ui.layout.ContentScale
+import android.content.Intent
+import android.net.Uri
+import androidx.core.content.FileProvider
+import java.io.File
 import androidx.compose.animation.*
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.ExperimentalFoundationApi
@@ -396,6 +406,25 @@ fun ChatDetailScreen(
     var showEditDialogForMessage by remember { mutableStateOf<ChatMessage?>(null) }
     var editMessageText by remember { mutableStateOf("") }
 
+    val context = LocalContext.current
+    var showAttachmentMenu by remember { mutableStateOf(false) }
+
+    val photoLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.GetContent()
+    ) { uri: Uri? ->
+        if (uri != null) {
+            viewModel.uploadMediaAndSendMessage(uri, "image", partner)
+        }
+    }
+
+    val videoLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.GetContent()
+    ) { uri: Uri? ->
+        if (uri != null) {
+            viewModel.uploadMediaAndSendMessage(uri, "video", partner)
+        }
+    }
+
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -493,11 +522,74 @@ fun ChatDetailScreen(
                             )
                     ) {
                         Column(modifier = Modifier.padding(12.dp)) {
-                            Text(
-                                text = msg.text,
-                                style = MaterialTheme.typography.bodyLarge,
-                                color = PhantomTextPrimary
-                            )
+                            if (msg.text.startsWith("media_pending:")) {
+                                val parts = msg.text.split(":")
+                                val mediaType = parts.getOrNull(1) ?: "image"
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    CircularProgressIndicator(modifier = Modifier.size(16.dp), color = PhantomSecondary, strokeWidth = 2.dp)
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Text("Decrypting secure $mediaType...", style = MaterialTheme.typography.bodyMedium, color = PhantomTextSecondary)
+                                }
+                            } else if (msg.text.startsWith("media:image:")) {
+                                val localPath = msg.text.substringAfter("media:image:")
+                                val bitmap = remember(localPath) {
+                                    BitmapFactory.decodeFile(localPath)?.asImageBitmap()
+                                }
+                                if (bitmap != null) {
+                                    Image(
+                                        bitmap = bitmap,
+                                        contentDescription = null,
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .height(200.dp)
+                                            .clip(RoundedCornerShape(8.dp)),
+                                        contentScale = ContentScale.Crop
+                                    )
+                                } else {
+                                    Text("[Image Unavailable]", color = PhantomError)
+                                }
+                            } else if (msg.text.startsWith("media:video:")) {
+                                val localPath = msg.text.substringAfter("media:video:")
+                                val videoFile = File(localPath)
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .height(150.dp)
+                                        .background(Color.Black, shape = RoundedCornerShape(8.dp))
+                                        .clickable {
+                                            try {
+                                                val videoUri = FileProvider.getUriForFile(
+                                                    context,
+                                                    "com.example.fileprovider",
+                                                    videoFile
+                                                )
+                                                val intent = Intent(Intent.ACTION_VIEW).apply {
+                                                    setDataAndType(videoUri, "video/*")
+                                                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                                                }
+                                                context.startActivity(intent)
+                                            } catch (e: Exception) {
+                                                val intent = Intent(Intent.ACTION_VIEW).apply {
+                                                    setDataAndType(Uri.fromFile(videoFile), "video/*")
+                                                }
+                                                context.startActivity(intent)
+                                            }
+                                        },
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                        Icon(Icons.Default.PlayCircle, contentDescription = null, tint = Color.White, modifier = Modifier.size(48.dp))
+                                        Spacer(modifier = Modifier.height(8.dp))
+                                        Text("Play Secure Video", color = Color.White, style = MaterialTheme.typography.bodyMedium)
+                                    }
+                                }
+                            } else {
+                                Text(
+                                    text = msg.text,
+                                    style = MaterialTheme.typography.bodyLarge,
+                                    color = PhantomTextPrimary
+                                )
+                            }
                             Spacer(modifier = Modifier.height(4.dp))
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
@@ -647,8 +739,30 @@ fun ChatDetailScreen(
                 .padding(horizontal = 12.dp, vertical = 8.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            IconButton(onClick = {}) {
-                Icon(Icons.Default.Add, contentDescription = "Add attachment", tint = PhantomSecondary)
+            Box {
+                IconButton(onClick = { showAttachmentMenu = true }) {
+                    Icon(Icons.Default.Add, contentDescription = "Add attachment", tint = PhantomSecondary)
+                }
+                DropdownMenu(
+                    expanded = showAttachmentMenu,
+                    onDismissRequest = { showAttachmentMenu = false },
+                    modifier = Modifier.background(PhantomSurface)
+                ) {
+                    DropdownMenuItem(
+                        text = { Text("📷 Send Photo", color = PhantomTextPrimary) },
+                        onClick = {
+                            showAttachmentMenu = false
+                            photoLauncher.launch("image/*")
+                        }
+                    )
+                    DropdownMenuItem(
+                        text = { Text("🎥 Send Video", color = PhantomTextPrimary) },
+                        onClick = {
+                            showAttachmentMenu = false
+                            videoLauncher.launch("video/*")
+                        }
+                    )
+                }
             }
 
             OutlinedTextField(
@@ -720,7 +834,8 @@ fun ChatDetailScreen(
                         Text("Copy plaintext payload")
                     }
 
-                    if (msg.sender == "Alice") {
+                    val myName = loginEmail.substringBefore("@")
+                    if (msg.sender == myName) {
                         Button(
                             onClick = {
                                 editMessageText = msg.text.replace(" (Edited)", "")

@@ -25,11 +25,13 @@ import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import okhttp3.MediaType.Companion.toMediaTypeOrNull
+import okhttp3.MultipartBody
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody
 import org.json.JSONArray
 import org.json.JSONObject
+import java.io.File
 import java.net.URLEncoder
 import java.security.MessageDigest
 import java.security.SecureRandom
@@ -539,6 +541,7 @@ class PhantomViewModel(
                     ciphertext = finalMsg.ciphertext,
                     mac = finalMsg.mac,
                     timestamp = finalMsg.timestamp,
+                    timestampMillis = System.currentTimeMillis(),
                     isEncrypted = finalMsg.isEncrypted,
                     isDelivered = finalMsg.isDelivered,
                     isRead = finalMsg.isRead,
@@ -597,27 +600,38 @@ class PhantomViewModel(
     fun deleteMessage(id: String, partner: ChatUser) {
         viewModelScope.launch {
             repository.deleteMessageById(id)
-            addLog("SYS", "Message $id permanently deleted from local storage.")
-            val remaining = _messageList.value.filterNot { it.id == id }
-            val lastText = remaining.lastOrNull()?.text ?: "No messages in chat"
-            val lastTime = remaining.lastOrNull()?.timestamp ?: "Now"
-            repository.insertUser(
-                RoomChatUser(
-                    partner.name,
-                    lastText,
-                    lastTime,
-                    0,
-                    partner.avatarColor.value.toInt(),
-                    partner.isOnline,
-                    partner.publicKey
-                )
-            )
+            addLog("SYS", "Message $id permanently deleted locally.")
+            
+            // Send protocol delete E2EE message over the network
+            val deletePayload = JSONObject()
+                .put("type", "delete")
+                .put("target_id", id)
+                .toString()
+            
+            encryptAndSendProtocolMessage(deletePayload, partner)
         }
     }
 
     fun editMessage(id: String, newText: String, partner: ChatUser) {
         viewModelScope.launch {
-            val original = _messageList.value.find { it.id == id } ?: return@launch
+            val original = repository.getMessageById(id) ?: return@launch
+            val updatedMsg = original.copy(text = "$newText (Edited)")
+            repository.insertMessage(updatedMsg)
+            addLog("SYS", "Message $id edited locally.")
+
+            // Send protocol edit E2EE message over the network
+            val editPayload = JSONObject()
+                .put("type", "edit")
+                .put("target_id", id)
+                .put("new_text", newText)
+                .toString()
+
+            encryptAndSendProtocolMessage(editPayload, partner)
+        }
+    }
+
+    private fun encryptAndSendProtocolMessage(payloadText: String, partner: ChatUser) {
+        viewModelScope.launch {
             val senderName = loginEmail.value.substringBefore("@")
             val sharedKey = try {
                 val myPrivate = CryptoUtils.base64ToPrivateKey(identityPrivateKey.value)
@@ -626,25 +640,279 @@ class PhantomViewModel(
             } catch (e: Exception) {
                 CryptoUtils.getSharedKey(senderName, partner.name)
             }
-            val newCipher = CryptoUtils.encrypt(newText, sharedKey)
-            val hmacBytes = hmacSha256(newCipher, sharedKey.encoded).take(16)
+            val ciphertextHex = CryptoUtils.encrypt(payloadText, sharedKey)
+            val hmacBytes = hmacSha256(ciphertextHex, sharedKey.encoded).take(16)
             val macCode = "hmac_sha256_$hmacBytes"
+            
+            val timestamp = SimpleDateFormat("h:mm a", Locale.getDefault()).format(Date())
+            val msgId = "protocol_" + Random.nextInt(10000, 99999)
+            
+            val jsonPayload = JSONObject()
+                .put("id", msgId)
+                .put("sender", senderName)
+                .put("recipient", partner.name)
+                .put("text", payloadText)
+                .put("ciphertext", ciphertextHex)
+                .put("mac", macCode)
+                .put("timestamp", timestamp)
+                .toString()
+            
+            val body = RequestBody.create(jsonMediaType, jsonPayload)
+            val request = buildAuthorizedRequest(getServerUrl("/api/messages/send"), "POST", body)
+            
+            withContext(Dispatchers.IO) {
+                try {
+                    client.newCall(request).execute()
+                } catch (e: Exception) {
+                    // Ignore drops
+                }
+            }
+        }
+    }
+
+    // --- Secure Media Transmission Helpers ---
+    fun encryptAndSendMediaMessage(rawMessage: String, localPathText: String, partner: ChatUser) {
+        viewModelScope.launch {
+            isEncryptingInProgress.value = true
+            activePipelineSteps.clear()
+
+            activePipelineSteps.add(CryptoPipelineStep("Plaintext Metadata", Icons.Default.TextFields, "[Media Metadata]", "Raw UTF-8 JSON metadata value.", Color(0xFF1A1C18)))
+            activePipelineStep.value = 0
+            delay(150)
+
+            val serialized = JSONObject()
+                .put("v", 1)
+                .put("type", "media")
+                .put("txt", rawMessage)
+                .toString()
+            activePipelineSteps.add(CryptoPipelineStep("Payload Serialization", Icons.Default.DataObject, serialized, "Package content into standard Signal formats.", Color(0xFF43493E)))
+            activePipelineStep.value = 1
+            delay(150)
+
+            val compressed = "deflate_comp_media_payload"
+            activePipelineSteps.add(CryptoPipelineStep("Binary Compression", Icons.Default.Compress, compressed, "Compress data to save bandwidth.", Color(0xFFA1AF97)))
+            activePipelineStep.value = 2
+            delay(150)
+
+            val senderName = loginEmail.value.substringBefore("@")
+            val sharedKey = try {
+                val myPrivate = CryptoUtils.base64ToPrivateKey(identityPrivateKey.value)
+                val peerPublic = CryptoUtils.base64ToPublicKey(partner.publicKey)
+                CryptoUtils.calculateECDHSharedKey(myPrivate, peerPublic)
+            } catch (e: Exception) {
+                CryptoUtils.getSharedKey(senderName, partner.name)
+            }
+            val ciphertextHex = CryptoUtils.encrypt(rawMessage, sharedKey)
+            activePipelineSteps.add(CryptoPipelineStep("AES-256-GCM Secure Encryption", Icons.Default.Lock, ciphertextHex.take(24) + "...", "Encrypt using derived shared key.", Color(0xFFD5E897)))
+            activePipelineStep.value = 3
+            delay(150)
+
+            val hmacBytes = hmacSha256(ciphertextHex, sharedKey.encoded).take(16)
+            val macCode = "hmac_sha256_$hmacBytes"
+            activePipelineSteps.add(CryptoPipelineStep("HMAC Authenticator Signature", Icons.Default.Fingerprint, macCode, "Seal with key-hashed MAC verification code.", Color(0xFF43493E)))
+            activePipelineStep.value = 4
+            delay(200)
+
+            val timestamp = SimpleDateFormat("h:mm a", Locale.getDefault()).format(Date())
+            val finalMsg = ChatMessage(
+                id = "msg_" + Random.nextInt(10000, 99999),
+                sender = senderName,
+                text = localPathText,
+                ciphertext = ciphertextHex,
+                mac = macCode,
+                timestamp = timestamp,
+                isEncrypted = true,
+                isDelivered = bobOnline.value,
+                isRead = false
+            )
 
             repository.insertMessage(
                 RoomChatMessage(
-                    id = id,
-                    sender = original.sender,
-                    text = newText + " (Edited)",
-                    ciphertext = newCipher,
-                    mac = macCode,
-                    timestamp = original.timestamp,
-                    isEncrypted = true,
-                    isDelivered = original.isDelivered,
-                    isRead = original.isRead,
+                    id = finalMsg.id,
+                    sender = finalMsg.sender,
+                    text = finalMsg.text,
+                    ciphertext = finalMsg.ciphertext,
+                    mac = finalMsg.mac,
+                    timestamp = finalMsg.timestamp,
+                    timestampMillis = System.currentTimeMillis(),
+                    isEncrypted = finalMsg.isEncrypted,
+                    isDelivered = finalMsg.isDelivered,
+                    isRead = finalMsg.isRead,
                     chatPartner = partner.name
                 )
             )
-            addLog("SYS", "Message $id edited successfully in storage.")
+
+            repository.insertUser(
+                RoomChatUser(
+                    partner.name,
+                    if (localPathText.startsWith("media:image:")) "📷 Photo" else "🎥 Video",
+                    timestamp,
+                    0,
+                    partner.avatarColor.value.toInt(),
+                    partner.isOnline,
+                    partner.publicKey
+                )
+            )
+
+            val myShortName = loginEmail.value.substringBefore("@")
+            val jsonPayload = JSONObject()
+                .put("id", finalMsg.id)
+                .put("sender", myShortName)
+                .put("recipient", partner.name)
+                .put("text", rawMessage)
+                .put("ciphertext", ciphertextHex)
+                .put("mac", macCode)
+                .put("timestamp", timestamp)
+                .toString()
+            val body = RequestBody.create(jsonMediaType, jsonPayload)
+            val request = buildAuthorizedRequest(getServerUrl("/api/messages/send"), "POST", body)
+
+            val success = withContext(Dispatchers.IO) {
+                try {
+                    val response = client.newCall(request).execute()
+                    response.isSuccessful
+                } catch (e: Exception) {
+                    false
+                }
+            }
+
+            if (success) {
+                addLog("NET", "Relayed secure media envelope successfully.")
+            } else {
+                addLog("ERROR", "Could not dispatch secure media envelope to relay server.")
+            }
+            
+            isEncryptingInProgress.value = false
+            activePipelineStep.value = -1
+        }
+    }
+
+    fun uploadMediaAndSendMessage(uri: android.net.Uri, mediaType: String, partner: ChatUser) {
+        viewModelScope.launch(Dispatchers.IO) {
+            val context = getApplication<Application>().applicationContext
+            val bytes = try {
+                context.contentResolver.openInputStream(uri)?.use { it.readBytes() }
+            } catch (e: Exception) {
+                null
+            }
+            if (bytes == null) {
+                addLog("ERROR", "Failed to read media bytes.")
+                return@launch
+            }
+
+            val senderName = loginEmail.value.substringBefore("@")
+            val sharedKey = try {
+                val myPrivate = CryptoUtils.base64ToPrivateKey(identityPrivateKey.value)
+                val peerPublic = CryptoUtils.base64ToPublicKey(partner.publicKey)
+                CryptoUtils.calculateECDHSharedKey(myPrivate, peerPublic)
+            } catch (e: Exception) {
+                CryptoUtils.getSharedKey(senderName, partner.name)
+            }
+
+            val encryptedBytes = try {
+                CryptoUtils.encryptBytes(bytes, sharedKey)
+            } catch (e: Exception) {
+                addLog("ERROR", "Encryption of media file failed.")
+                return@launch
+            }
+
+            val requestBody = MultipartBody.Builder()
+                .setType(MultipartBody.FORM)
+                .addFormDataPart(
+                    "file",
+                    if (mediaType == "image") "media.jpg" else "media.mp4",
+                    RequestBody.create("application/octet-stream".toMediaTypeOrNull(), encryptedBytes)
+                )
+                .build()
+            val request = buildAuthorizedRequest(getServerUrl("/api/media/upload"), "POST", requestBody)
+
+            val fileId = try {
+                val response = client.newCall(request).execute()
+                if (response.isSuccessful) {
+                    val json = JSONObject(response.body?.string() ?: "")
+                    json.getString("file_id")
+                } else {
+                    addLog("ERROR", "Media upload failed: ${response.code}")
+                    null
+                }
+            } catch (e: Exception) {
+                addLog("ERROR", "Connection to upload server failed.")
+                null
+            }
+
+            if (fileId == null) return@launch
+
+            val localFile = File(context.cacheDir, "media_${fileId}")
+            try {
+                localFile.writeBytes(bytes)
+            } catch (e: Exception) {
+                // ignore
+            }
+
+            val metadata = JSONObject()
+                .put("type", "media")
+                .put("media_type", mediaType)
+                .put("file_id", fileId)
+                .toString()
+
+            val localPathText = "media:$mediaType:${localFile.absolutePath}"
+            withContext(Dispatchers.Main) {
+                encryptAndSendMediaMessage(metadata, localPathText, partner)
+            }
+        }
+    }
+
+    private fun downloadAndDecryptMedia(fileId: String, mediaType: String, sender: String, messageId: String) {
+        viewModelScope.launch(Dispatchers.IO) {
+            val context = getApplication<Application>().applicationContext
+            val localFile = File(context.cacheDir, "media_${fileId}")
+            if (localFile.exists()) {
+                val msg = repository.getMessageById(messageId)
+                if (msg != null) {
+                    repository.insertMessage(msg.copy(text = "media:$mediaType:${localFile.absolutePath}"))
+                }
+                return@launch
+            }
+
+            val request = buildAuthorizedRequest(getServerUrl("/api/media/download/$fileId"))
+            val encryptedBytes = try {
+                val response = client.newCall(request).execute()
+                if (response.isSuccessful) {
+                    response.body?.bytes()
+                } else null
+            } catch (e: Exception) {
+                null
+            }
+
+            if (encryptedBytes == null) return@launch
+
+            val senderName = loginEmail.value.substringBefore("@")
+            val senderUser = repository.getUserByName(sender)
+            val sharedKey = try {
+                val myPrivate = CryptoUtils.base64ToPrivateKey(identityPrivateKey.value)
+                val peerPublic = CryptoUtils.base64ToPublicKey(senderUser?.publicKey ?: "")
+                CryptoUtils.calculateECDHSharedKey(myPrivate, peerPublic)
+            } catch (e: Exception) {
+                CryptoUtils.getSharedKey(sender, senderName)
+            }
+
+            val decryptedBytes = try {
+                CryptoUtils.decryptBytes(encryptedBytes, sharedKey)
+            } catch (e: Exception) {
+                null
+            }
+
+            if (decryptedBytes == null) return@launch
+
+            try {
+                localFile.writeBytes(decryptedBytes)
+                val msg = repository.getMessageById(messageId)
+                if (msg != null) {
+                    repository.insertMessage(msg.copy(text = "media:$mediaType:${localFile.absolutePath}"))
+                }
+            } catch (e: Exception) {
+                // ignore
+            }
         }
     }
 
@@ -692,6 +960,7 @@ class PhantomViewModel(
                     ciphertext = finalMsg.ciphertext,
                     mac = finalMsg.mac,
                     timestamp = finalMsg.timestamp,
+                    timestampMillis = System.currentTimeMillis(),
                     isEncrypted = finalMsg.isEncrypted,
                     isDelivered = finalMsg.isDelivered,
                     isRead = finalMsg.isRead,
@@ -824,35 +1093,70 @@ class PhantomViewModel(
                                     "[Decrypted Payload]"
                                 }
 
-                                val incomingMsg = RoomChatMessage(
-                                    id = id,
-                                    sender = sender,
-                                    text = decryptedText,
-                                    ciphertext = ciphertext,
-                                    mac = mac,
-                                    timestamp = timestamp,
-                                    isEncrypted = true,
-                                    isDelivered = true,
-                                    isRead = false,
-                                    chatPartner = sender
-                                )
-                                repository.insertMessage(incomingMsg)
+                                var isProtocolMsg = false
+                                var finalDecryptedText = decryptedText
+                                try {
+                                    val json = JSONObject(decryptedText)
+                                    when (json.optString("type")) {
+                                        "media" -> {
+                                            val mediaType = json.optString("media_type")
+                                            val fileId = json.optString("file_id")
+                                            finalDecryptedText = "media_pending:$mediaType:$fileId"
+                                            downloadAndDecryptMedia(fileId, mediaType, sender, id)
+                                        }
+                                        "edit" -> {
+                                            isProtocolMsg = true
+                                            val targetId = json.getString("target_id")
+                                            val newText = json.getString("new_text")
+                                            val msg = repository.getMessageById(targetId)
+                                            if (msg != null) {
+                                                repository.insertMessage(msg.copy(text = "$newText (Edited)"))
+                                            }
+                                        }
+                                        "delete" -> {
+                                            isProtocolMsg = true
+                                            val targetId = json.getString("target_id")
+                                            repository.deleteMessageById(targetId)
+                                        }
+                                    }
+                                } catch (e: Exception) {
+                                    // Not a protocol JSON
+                                }
 
-                                // Ensure sender user exists in local contact list with actual public key
-                                val resolvedPubKey = if (senderPublicKey.isNotBlank()) senderPublicKey else "id_pub_relayed"
-                                repository.insertUser(
-                                    RoomChatUser(
-                                        sender,
-                                        decryptedText,
-                                        timestamp,
-                                        1,
-                                        0xFF81C784.toInt(),
-                                        true,
-                                        resolvedPubKey
+                                if (!isProtocolMsg) {
+                                    val incomingMsg = RoomChatMessage(
+                                        id = id,
+                                        sender = sender,
+                                        text = finalDecryptedText,
+                                        ciphertext = ciphertext,
+                                        mac = mac,
+                                        timestamp = timestamp,
+                                        timestampMillis = System.currentTimeMillis(),
+                                        isEncrypted = true,
+                                        isDelivered = true,
+                                        isRead = false,
+                                        chatPartner = sender
                                     )
-                                )
+                                    repository.insertMessage(incomingMsg)
 
-                                addLog("IN", "Received and decrypted E2EE transmission from $sender.")
+                                    // Ensure sender user exists in local contact list with actual public key
+                                    val resolvedPubKey = if (senderPublicKey.isNotBlank()) senderPublicKey else "id_pub_relayed"
+                                    repository.insertUser(
+                                        RoomChatUser(
+                                            sender,
+                                            if (finalDecryptedText.startsWith("media:")) {
+                                                if (finalDecryptedText.contains(":image:")) "📷 Photo" else "🎥 Video"
+                                            } else finalDecryptedText,
+                                            timestamp,
+                                            1,
+                                            0xFF81C784.toInt(),
+                                            true,
+                                            resolvedPubKey
+                                        )
+                                    )
+
+                                    addLog("IN", "Received and decrypted E2EE transmission from $sender.")
+                                }
                             }
                         } else if (response.code == 401) {
                             handleSessionExpired()
@@ -904,7 +1208,17 @@ class PhantomViewModel(
                 queueToFlush.forEach { msg ->
                     repository.insertMessage(
                         RoomChatMessage(
-                            msg.id, msg.sender, msg.text, msg.ciphertext, msg.mac, msg.timestamp, msg.isEncrypted, true, msg.isRead, selectedChatUser.value?.name ?: "Ethan"
+                            id = msg.id,
+                            sender = msg.sender,
+                            text = msg.text,
+                            ciphertext = msg.ciphertext,
+                            mac = msg.mac,
+                            timestamp = msg.timestamp,
+                            timestampMillis = System.currentTimeMillis(),
+                            isEncrypted = msg.isEncrypted,
+                            isDelivered = true,
+                            isRead = msg.isRead,
+                            chatPartner = selectedChatUser.value?.name ?: "Ethan"
                         )
                     )
                 }

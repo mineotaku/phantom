@@ -33,6 +33,14 @@ class PhantomRepository(private val dao: PhantomDao) {
         dao.deleteMessageById(id)
     }
 
+    suspend fun getMessageById(id: String): RoomChatMessage? = withContext(Dispatchers.IO) {
+        dao.getMessageById(id)
+    }
+
+    suspend fun getUserByName(name: String): RoomChatUser? = withContext(Dispatchers.IO) {
+        dao.getUserByName(name)
+    }
+
     suspend fun clearAllMessages() = withContext(Dispatchers.IO) {
         dao.clearAllMessages()
     }
