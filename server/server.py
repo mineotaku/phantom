@@ -11,9 +11,11 @@ import urllib.request
 import urllib.error
 import json
 
-from fastapi import Depends, FastAPI, HTTPException, Query, Security, status
+from fastapi import Depends, FastAPI, HTTPException, Query, Security, status, File, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+from fastapi.responses import FileResponse
+import uuid
 from pydantic import BaseModel, Field
 from sqlalchemy import Boolean, DateTime, Integer, String, Text, create_engine, select
 from sqlalchemy.orm import DeclarativeBase, Mapped, Session, mapped_column, sessionmaker
@@ -468,6 +470,39 @@ def poll_messages(
 
     db.commit()
     return response
+
+
+# --- Secure E2EE Media Storage endpoints ---
+MEDIA_STORE_DIR = "./media_store"
+os.makedirs(MEDIA_STORE_DIR, exist_ok=True)
+
+
+@app.post("/api/media/upload")
+async def upload_media(
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db),
+    email: str = Depends(get_current_user_email)
+):
+    file_id = str(uuid.uuid4())
+    file_path = os.path.join(MEDIA_STORE_DIR, file_id)
+    with open(file_path, "wb") as f:
+        f.write(await file.read())
+    return {"file_id": file_id}
+
+
+@app.get("/api/media/download/{file_id}")
+def download_media(
+    file_id: str,
+    db: Session = Depends(get_db),
+    email: str = Depends(get_current_user_email)
+):
+    file_path = os.path.join(MEDIA_STORE_DIR, file_id)
+    if not os.path.exists(file_path):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Encrypted media file not found",
+        )
+    return FileResponse(file_path, media_type="application/octet-stream")
 
 
 if __name__ == "__main__":
