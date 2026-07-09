@@ -110,6 +110,24 @@ fun ChatListScreen(
 
             Spacer(modifier = Modifier.width(12.dp))
 
+            // Refresh Contacts Button
+            IconButton(
+                onClick = { viewModel.syncContactsFromServer() },
+                modifier = Modifier
+                    .size(40.dp)
+                    .background(PhantomSurface, shape = CircleShape)
+                    .border(1.dp, PhantomBorder, shape = CircleShape)
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Refresh,
+                    contentDescription = "Sync Contacts",
+                    tint = PhantomSecondary,
+                    modifier = Modifier.size(20.dp)
+                )
+            }
+
+            Spacer(modifier = Modifier.width(8.dp))
+
             // Profile Avatar Button
             Box {
                 IconButton(
