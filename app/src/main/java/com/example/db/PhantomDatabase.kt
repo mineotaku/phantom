@@ -76,7 +76,15 @@ interface PhantomDao {
     @Query("DELETE FROM chat_messages")
     suspend fun clearAllMessages()
 
-    @Query("SELECT * FROM chat_users")
+    @Query("""
+        SELECT cu.* FROM chat_users cu
+        LEFT JOIN (
+            SELECT chatPartner, MAX(timestampMillis) as max_ts 
+            FROM chat_messages 
+            GROUP BY chatPartner
+        ) m ON cu.name = m.chatPartner
+        ORDER BY COALESCE(m.max_ts, 0) DESC, cu.name ASC
+    """)
     fun getAllUsersFlow(): Flow<List<RoomChatUser>>
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
