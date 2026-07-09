@@ -293,7 +293,13 @@ class PhantomViewModel(
                     if (response.isSuccessful) {
                         response.body?.string()
                     } else {
-                        errorDetails = "Server HTTP code: ${response.code}"
+                        val errBody = response.body?.string()
+                        val parsedDetail = try {
+                            JSONObject(errBody ?: "").optString("detail")
+                        } catch (e: Exception) {
+                            null
+                        }
+                        errorDetails = if (!parsedDetail.isNullOrBlank()) parsedDetail else "Server HTTP code: ${response.code}"
                         null
                     }
                 } catch (e: Exception) {
