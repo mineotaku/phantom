@@ -1,5 +1,6 @@
 package com.example.ui.screens
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.animation.*
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.ExperimentalFoundationApi
@@ -44,6 +45,10 @@ import com.example.ui.viewmodel.PhantomViewModel
 fun MessagingScreen(viewModel: PhantomViewModel) {
     val selectedChatUser by viewModel.selectedChatUser.collectAsState()
     var isChatDetailOpen by remember { mutableStateOf(false) }
+
+    BackHandler(enabled = isChatDetailOpen && selectedChatUser != null) {
+        isChatDetailOpen = false
+    }
 
     if (!isChatDetailOpen || selectedChatUser == null) {
         ChatListScreen(

@@ -1,6 +1,7 @@
 package com.example
 
 import android.os.Bundle
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.biometric.BiometricPrompt
@@ -103,6 +104,15 @@ fun MainScaffold(
     val navController = rememberNavController()
     val navBackStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = navBackStackEntry?.destination?.route ?: "messages"
+
+    BackHandler(enabled = currentRoute != "messages") {
+        navController.navigate("messages") {
+            popUpTo(navController.graph.startDestinationId) {
+                inclusive = false
+            }
+            launchSingleTop = true
+        }
+    }
 
     val isBooted by viewModel.isBooted.collectAsState()
     val bootProgress by viewModel.bootProgress.collectAsState()

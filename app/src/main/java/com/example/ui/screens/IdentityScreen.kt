@@ -13,6 +13,9 @@ import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Public
 import androidx.compose.material.icons.filled.VerifiedUser
 import androidx.compose.material.icons.filled.VpnKey
+import androidx.compose.material.icons.filled.AlternateEmail
+import androidx.compose.material.icons.filled.Share
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
@@ -48,6 +51,7 @@ fun IdentityScreen(viewModel: PhantomViewModel) {
     val deviceId by viewModel.deviceId.collectAsState()
     val tokenFCM by viewModel.tokenFCM.collectAsState()
     val activeSessionToken by viewModel.activeSessionToken.collectAsState()
+    val loginEmail by viewModel.loginEmail.collectAsState()
     
     LazyColumn(
         modifier = Modifier
@@ -137,32 +141,99 @@ fun IdentityScreen(viewModel: PhantomViewModel) {
                             }
                         }
                     } else {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .background(Color(0xFFE8F5E9), shape = RoundedCornerShape(8.dp))
-                                .padding(12.dp)
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.VerifiedUser,
-                                contentDescription = null,
-                                tint = Color(0xFF4CAF50),
-                                modifier = Modifier.size(32.dp)
+                        val userId = loginEmail.substringBefore("@")
+                        val context = LocalContext.current
+                        Column(modifier = Modifier.fillMaxWidth()) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .background(Color(0xFFE8F5E9), shape = RoundedCornerShape(8.dp))
+                                    .padding(12.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.VerifiedUser,
+                                    contentDescription = null,
+                                    tint = Color(0xFF4CAF50),
+                                    modifier = Modifier.size(32.dp)
+                                )
+                                Spacer(modifier = Modifier.width(12.dp))
+                                Column {
+                                    Text(
+                                        text = "Identity Registered Securely",
+                                        fontWeight = FontWeight.Bold,
+                                        color = Color(0xFF2E7D32),
+                                        fontSize = 14.sp
+                                    )
+                                    Text(
+                                        text = "Keys signed and published to Phantom Directory.",
+                                        color = Color(0xFF4CAF50),
+                                        fontSize = 12.sp
+                                    )
+                                }
+                            }
+
+                            Spacer(modifier = Modifier.height(16.dp))
+
+                            Text(
+                                text = "Unique User ID",
+                                style = MaterialTheme.typography.labelLarge,
+                                color = PhantomTextSecondary
                             )
-                            Spacer(modifier = Modifier.width(12.dp))
-                            Column {
-                                Text(
-                                    text = "Phone Verified Securely",
-                                    fontWeight = FontWeight.Bold,
-                                    color = Color(0xFF2E7D32),
-                                    fontSize = 14.sp
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .background(PhantomTerminalBg, shape = RoundedCornerShape(8.dp))
+                                    .border(1.dp, PhantomBorder, shape = RoundedCornerShape(8.dp))
+                                    .padding(horizontal = 12.dp, vertical = 10.dp),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Icon(
+                                        imageVector = Icons.Default.AlternateEmail,
+                                        contentDescription = null,
+                                        tint = PhantomSecondary,
+                                        modifier = Modifier.size(16.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Text(
+                                        text = userId,
+                                        fontFamily = FontFamily.Monospace,
+                                        fontSize = 14.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = PhantomTextPrimary
+                                    )
+                                }
+                            }
+
+                            Spacer(modifier = Modifier.height(16.dp))
+
+                            Button(
+                                onClick = {
+                                    val shareIntent = android.content.Intent().apply {
+                                        action = android.content.Intent.ACTION_SEND
+                                        type = "text/plain"
+                                        putExtra(
+                                            android.content.Intent.EXTRA_TEXT,
+                                            "Connect with me on Phantom (Secure E2EE Messenger)! My User ID is: @$userId. Share Link: https://phantom-pu9t.onrender.com/invite/$userId"
+                                        )
+                                    }
+                                    val chooser = android.content.Intent.createChooser(shareIntent, "Share Profile Link")
+                                    context.startActivity(chooser)
+                                },
+                                colors = ButtonDefaults.buttonColors(containerColor = PhantomSecondary),
+                                shape = RoundedCornerShape(8.dp),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Share,
+                                    contentDescription = "Share",
+                                    tint = Color.White
                                 )
-                                Text(
-                                    text = "Keys signed and published to Phantom Directory.",
-                                    color = Color(0xFF4CAF50),
-                                    fontSize = 12.sp
-                                )
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text("SHARE PROFILE LINK", fontWeight = FontWeight.Bold, color = Color.White)
                             }
                         }
                     }
