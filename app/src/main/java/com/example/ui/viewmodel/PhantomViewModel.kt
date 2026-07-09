@@ -786,16 +786,70 @@ class PhantomViewModel(
         }
     }
 
+    private fun compressImageUri(context: android.content.Context, uri: android.net.Uri): ByteArray? {
+        return try {
+            context.contentResolver.openInputStream(uri)?.use { inputStream ->
+                val bytesTemp = inputStream.readBytes()
+                val options = android.graphics.BitmapFactory.Options().apply {
+                    inJustDecodeBounds = true
+                }
+                android.graphics.BitmapFactory.decodeByteArray(bytesTemp, 0, bytesTemp.size, options)
+                
+                val maxDim = 1200
+                var scale = 1
+                if (options.outWidth > maxDim || options.outHeight > maxDim) {
+                    val widthScale = Math.round(options.outWidth.toFloat() / maxDim.toFloat())
+                    val heightScale = Math.round(options.outHeight.toFloat() / maxDim.toFloat())
+                    scale = Math.max(widthScale, heightScale)
+                }
+                
+                val decodeOptions = android.graphics.BitmapFactory.Options().apply {
+                    inSampleSize = scale
+                }
+                val bitmap = android.graphics.BitmapFactory.decodeByteArray(bytesTemp, 0, bytesTemp.size, decodeOptions) ?: return null
+                
+                val outputStream = java.io.ByteArrayOutputStream()
+                bitmap.compress(android.graphics.Bitmap.CompressFormat.JPEG, 75, outputStream)
+                val compressedBytes = outputStream.toByteArray()
+                bitmap.recycle()
+                compressedBytes
+            }
+        } catch (e: Throwable) {
+            null
+        }
+    }
+
     fun uploadMediaAndSendMessage(uri: android.net.Uri, mediaType: String, partner: ChatUser) {
         viewModelScope.launch(Dispatchers.IO) {
             val context = getApplication<Application>().applicationContext
-            val bytes = try {
-                context.contentResolver.openInputStream(uri)?.use { it.readBytes() }
-            } catch (e: Exception) {
-                null
+            val bytes = if (mediaType == "image") {
+                compressImageUri(context, uri)
+            } else {
+                val size = try {
+                    context.contentResolver.openFileDescriptor(uri, "r")?.use {
+                        it.statSize
+                    } ?: 0L
+                } catch (e: Exception) {
+                    0L
+                }
+                if (size > 15728640L) { // 15MB
+                    withContext(Dispatchers.Main) {
+                        android.widget.Toast.makeText(context, "Video file is too large (maximum 15MB)", android.widget.Toast.LENGTH_LONG).show()
+                    }
+                    return@launch
+                }
+                try {
+                    context.contentResolver.openInputStream(uri)?.use { it.readBytes() }
+                } catch (e: Throwable) {
+                    null
+                }
             }
+
             if (bytes == null) {
-                addLog("ERROR", "Failed to read media bytes.")
+                withContext(Dispatchers.Main) {
+                    android.widget.Toast.makeText(context, "Failed to read or compress media file.", android.widget.Toast.LENGTH_LONG).show()
+                }
+                addLog("ERROR", "Failed to read or compress media bytes.")
                 return@launch
             }
 
