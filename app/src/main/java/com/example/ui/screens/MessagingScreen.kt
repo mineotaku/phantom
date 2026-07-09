@@ -11,6 +11,12 @@ import android.content.Intent
 import android.net.Uri
 import androidx.core.content.FileProvider
 import java.io.File
+import android.content.Context
+import android.provider.MediaStore
+import android.content.ContentUris
+import android.widget.Toast
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.Dispatchers
 import androidx.compose.animation.*
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.ExperimentalFoundationApi
@@ -408,58 +414,24 @@ fun ChatDetailScreen(
 
     val context = LocalContext.current
     var showAttachmentMenu by remember { mutableStateOf(false) }
+    var showInAppMediaPicker by remember { mutableStateOf<String?>(null) }
+    var inAppMediaList by remember { mutableStateOf<List<Uri>>(emptyList()) }
 
-    val photoLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.PickVisualMedia()
-    ) { uri: Uri? ->
-        if (uri != null) {
-            viewModel.uploadMediaAndSendMessage(uri, "image", partner)
+    val permissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestMultiplePermissions()
+    ) { permissions ->
+        val granted = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
+            permissions[android.Manifest.permission.READ_MEDIA_IMAGES] == true ||
+            permissions[android.Manifest.permission.READ_MEDIA_VIDEO] == true
+        } else {
+            permissions[android.Manifest.permission.READ_EXTERNAL_STORAGE] == true
         }
-    }
-
-    val legacyPhotoLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.GetContent()
-    ) { uri: Uri? ->
-        if (uri != null) {
-            viewModel.uploadMediaAndSendMessage(uri, "image", partner)
-        }
-    }
-
-    val videoLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.PickVisualMedia()
-    ) { uri: Uri? ->
-        if (uri != null) {
-            viewModel.uploadMediaAndSendMessage(uri, "video", partner)
-        }
-    }
-
-    val legacyVideoLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.GetContent()
-    ) { uri: Uri? ->
-        if (uri != null) {
-            viewModel.uploadMediaAndSendMessage(uri, "video", partner)
-        }
-    }
-
-    val pickImageIntentLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.StartActivityForResult()
-    ) { result ->
-        if (result.resultCode == android.app.Activity.RESULT_OK) {
-            val uri = result.data?.data
-            if (uri != null) {
-                viewModel.uploadMediaAndSendMessage(uri, "image", partner)
-            }
-        }
-    }
-
-    val pickVideoIntentLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.StartActivityForResult()
-    ) { result ->
-        if (result.resultCode == android.app.Activity.RESULT_OK) {
-            val uri = result.data?.data
-            if (uri != null) {
-                viewModel.uploadMediaAndSendMessage(uri, "video", partner)
-            }
+        if (granted) {
+            val type = showInAppMediaPicker ?: "image"
+            inAppMediaList = queryRecentMedia(context, type)
+        } else {
+            Toast.makeText(context, "Storage permission is required to select files", Toast.LENGTH_SHORT).show()
+            showInAppMediaPicker = null
         }
     }
 
@@ -729,54 +701,26 @@ fun ChatDetailScreen(
                         text = { Text("📷 Send Photo", color = PhantomTextPrimary) },
                         onClick = {
                             showAttachmentMenu = false
-                            try {
-                                photoLauncher.launch(
-                                    androidx.activity.result.PickVisualMediaRequest(
-                                        ActivityResultContracts.PickVisualMedia.ImageOnly
-                                    )
-                                )
-                            } catch (e: Exception) {
-                                try {
-                                    legacyPhotoLauncher.launch("image/*")
-                                } catch (e2: Exception) {
-                                    try {
-                                        val intent = Intent(
-                                            Intent.ACTION_PICK,
-                                            android.provider.MediaStore.Images.Media.EXTERNAL_CONTENT_URI
-                                        )
-                                        pickImageIntentLauncher.launch(intent)
-                                    } catch (e3: Exception) {
-                                        android.widget.Toast.makeText(context, "No gallery or media selector app found on this device", android.widget.Toast.LENGTH_SHORT).show()
-                                    }
-                                }
+                            showInAppMediaPicker = "image"
+                            val permissions = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
+                                arrayOf(android.Manifest.permission.READ_MEDIA_IMAGES)
+                            } else {
+                                arrayOf(android.Manifest.permission.READ_EXTERNAL_STORAGE)
                             }
+                            permissionLauncher.launch(permissions)
                         }
                     )
                     DropdownMenuItem(
                         text = { Text("🎥 Send Video", color = PhantomTextPrimary) },
                         onClick = {
                             showAttachmentMenu = false
-                            try {
-                                videoLauncher.launch(
-                                    androidx.activity.result.PickVisualMediaRequest(
-                                        ActivityResultContracts.PickVisualMedia.VideoOnly
-                                    )
-                                )
-                            } catch (e: Exception) {
-                                try {
-                                    legacyVideoLauncher.launch("video/*")
-                                } catch (e2: Exception) {
-                                    try {
-                                        val intent = Intent(
-                                            Intent.ACTION_PICK,
-                                            android.provider.MediaStore.Video.Media.EXTERNAL_CONTENT_URI
-                                        )
-                                        pickVideoIntentLauncher.launch(intent)
-                                    } catch (e3: Exception) {
-                                        android.widget.Toast.makeText(context, "No gallery or media selector app found on this device", android.widget.Toast.LENGTH_SHORT).show()
-                                    }
-                                }
+                            showInAppMediaPicker = "video"
+                            val permissions = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
+                                arrayOf(android.Manifest.permission.READ_MEDIA_VIDEO)
+                            } else {
+                                arrayOf(android.Manifest.permission.READ_EXTERNAL_STORAGE)
                             }
+                            permissionLauncher.launch(permissions)
                         }
                     )
                 }
@@ -916,5 +860,155 @@ fun ChatDetailScreen(
                 }
             }
         )
+    }
+
+    // Custom In-App Gallery Media Picker Dialog
+    if (showInAppMediaPicker != null) {
+        val pickerType = showInAppMediaPicker!!
+        AlertDialog(
+            onDismissRequest = { showInAppMediaPicker = null },
+            title = { 
+                Text(
+                    text = if (pickerType == "image") "Select Secure Photo" else "Select Secure Video",
+                    fontWeight = FontWeight.Bold,
+                    color = PhantomTextPrimary
+                ) 
+            },
+            text = {
+                Column(modifier = Modifier.fillMaxWidth().height(320.dp)) {
+                    Text(
+                        text = "Encrypted in memory. Storage files are read directly without third-party apps.",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = PhantomTextSecondary,
+                        modifier = Modifier.padding(bottom = 12.dp)
+                    )
+                    
+                    if (inAppMediaList.isEmpty()) {
+                        Box(
+                            modifier = Modifier.fillMaxSize(),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                Icon(Icons.Default.PhotoLibrary, contentDescription = null, tint = PhantomTertiary, modifier = Modifier.size(48.dp))
+                                Spacer(modifier = Modifier.height(8.dp))
+                                Text("No recent media files found.", color = PhantomTextSecondary, style = MaterialTheme.typography.bodyMedium)
+                            }
+                        }
+                    } else {
+                        androidx.compose.foundation.lazy.grid.LazyVerticalGrid(
+                            columns = androidx.compose.foundation.lazy.grid.GridCells.Fixed(3),
+                            horizontalArrangement = Arrangement.spacedBy(4.dp),
+                            verticalArrangement = Arrangement.spacedBy(4.dp),
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            items(inAppMediaList.size) { index ->
+                                val uri = inAppMediaList[index]
+                                Box(
+                                    modifier = Modifier
+                                        .aspectRatio(1f)
+                                        .clip(RoundedCornerShape(8.dp))
+                                        .clickable {
+                                            viewModel.uploadMediaAndSendMessage(uri, pickerType, partner)
+                                            showInAppMediaPicker = null
+                                        }
+                                ) {
+                                    AsyncThumbnail(uri = uri, context = context, modifier = Modifier.fillMaxSize())
+                                    if (pickerType == "video") {
+                                        Box(
+                                            modifier = Modifier
+                                                .fillMaxSize()
+                                                .background(Color.Black.copy(alpha = 0.3f)),
+                                            contentAlignment = Alignment.Center
+                                        ) {
+                                            Icon(Icons.Default.PlayArrow, contentDescription = null, tint = Color.White, modifier = Modifier.size(24.dp))
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { showInAppMediaPicker = null }) {
+                    Text("CANCEL", color = PhantomSecondary, fontWeight = FontWeight.Bold)
+                }
+            },
+            containerColor = PhantomSurface,
+            shape = RoundedCornerShape(16.dp),
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp)
+        )
+    }
+}
+
+private fun queryRecentMedia(context: Context, mediaType: String): List<Uri> {
+    val list = mutableListOf<Uri>()
+    val uri = if (mediaType == "image") {
+        MediaStore.Images.Media.EXTERNAL_CONTENT_URI
+    } else {
+        MediaStore.Video.Media.EXTERNAL_CONTENT_URI
+    }
+    
+    val projection = arrayOf(MediaStore.MediaColumns._ID)
+    val sortOrder = "${MediaStore.MediaColumns.DATE_ADDED} DESC"
+    
+    try {
+        context.contentResolver.query(uri, projection, null, null, sortOrder)?.use { cursor ->
+            val idColumn = cursor.getColumnIndexOrThrow(MediaStore.MediaColumns._ID)
+            var count = 0
+            while (cursor.moveToNext() && count < 60) {
+                val id = cursor.getLong(idColumn)
+                val contentUri = ContentUris.withAppendedId(uri, id)
+                list.add(contentUri)
+                count++
+            }
+        }
+    } catch (e: Exception) {
+        // ignore
+    }
+    return list
+}
+
+@Composable
+fun AsyncThumbnail(
+    uri: Uri,
+    context: Context,
+    modifier: Modifier = Modifier
+) {
+    var bitmap by remember { mutableStateOf<android.graphics.Bitmap?>(null) }
+    
+    LaunchedEffect(uri) {
+        withContext(Dispatchers.IO) {
+            try {
+                if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
+                    bitmap = context.contentResolver.loadThumbnail(uri, android.util.Size(200, 200), null)
+                } else {
+                    context.contentResolver.openInputStream(uri)?.use { stream ->
+                        val options = BitmapFactory.Options().apply {
+                            inSampleSize = 4
+                        }
+                        bitmap = BitmapFactory.decodeStream(stream, null, options)
+                    }
+                }
+            } catch (e: Exception) {
+                // ignore
+            }
+        }
+    }
+    
+    if (bitmap != null) {
+        Image(
+            bitmap = bitmap!!.asImageBitmap(),
+            contentDescription = null,
+            contentScale = ContentScale.Crop,
+            modifier = modifier
+        )
+    } else {
+        Box(
+            modifier = modifier.background(Color.Gray.copy(alpha = 0.2f)),
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(Icons.Default.Image, contentDescription = null, tint = Color.LightGray)
+        }
     }
 }
