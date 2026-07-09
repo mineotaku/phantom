@@ -821,6 +821,7 @@ class PhantomViewModel(
             bitmap.recycle()
             compressedBytes
         } catch (e: Throwable) {
+            android.util.Log.e("PHANTOM", "compressImageUri failed", e)
             null
         }
     }
@@ -891,11 +892,15 @@ class PhantomViewModel(
                     val json = JSONObject(response.body?.string() ?: "")
                     json.getString("file_id")
                 } else {
-                    addLog("ERROR", "Media upload failed: ${response.code}")
+                    val code = response.code
+                    val bodyStr = try { response.body?.string() } catch(e: Exception) { "" }
+                    addLog("ERROR", "Media upload failed: $code")
+                    android.util.Log.e("PHANTOM", "Media upload failed status: $code, response: $bodyStr")
                     null
                 }
             } catch (e: Exception) {
                 addLog("ERROR", "Connection to upload server failed.")
+                android.util.Log.e("PHANTOM", "Connection to upload server failed.", e)
                 null
             }
 
