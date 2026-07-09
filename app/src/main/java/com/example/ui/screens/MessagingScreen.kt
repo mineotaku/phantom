@@ -417,21 +417,13 @@ fun ChatDetailScreen(
     var showInAppMediaPicker by remember { mutableStateOf<String?>(null) }
     var inAppMediaList by remember { mutableStateOf<List<Uri>>(emptyList()) }
 
-    val permissionLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.RequestMultiplePermissions()
-    ) { permissions ->
-        val granted = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
-            permissions[android.Manifest.permission.READ_MEDIA_IMAGES] == true ||
-            permissions[android.Manifest.permission.READ_MEDIA_VIDEO] == true
-        } else {
-            permissions[android.Manifest.permission.READ_EXTERNAL_STORAGE] == true
-        }
-        if (granted) {
-            val type = showInAppMediaPicker ?: "image"
+    val storageEvent by viewModel.storagePermissionGrantedEvent.collectAsState()
+    LaunchedEffect(storageEvent) {
+        if (storageEvent != null) {
+            val type = storageEvent!!
+            viewModel.storagePermissionGrantedEvent.value = null
             inAppMediaList = queryRecentMedia(context, type)
-        } else {
-            Toast.makeText(context, "Storage permission is required to select files", Toast.LENGTH_SHORT).show()
-            showInAppMediaPicker = null
+            showInAppMediaPicker = type
         }
     }
 
@@ -701,26 +693,44 @@ fun ChatDetailScreen(
                         text = { Text("📷 Send Photo", color = PhantomTextPrimary) },
                         onClick = {
                             showAttachmentMenu = false
-                            showInAppMediaPicker = "image"
-                            val permissions = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
-                                arrayOf(android.Manifest.permission.READ_MEDIA_IMAGES)
+                            val permission = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
+                                android.Manifest.permission.READ_MEDIA_IMAGES
                             } else {
-                                arrayOf(android.Manifest.permission.READ_EXTERNAL_STORAGE)
+                                android.Manifest.permission.READ_EXTERNAL_STORAGE
                             }
-                            permissionLauncher.launch(permissions)
+                            
+                            if (androidx.core.content.ContextCompat.checkSelfPermission(context, permission) == android.content.pm.PackageManager.PERMISSION_GRANTED) {
+                                inAppMediaList = queryRecentMedia(context, "image")
+                                showInAppMediaPicker = "image"
+                            } else {
+                                androidx.core.app.ActivityCompat.requestPermissions(
+                                    context as android.app.Activity,
+                                    arrayOf(permission),
+                                    102
+                                )
+                            }
                         }
                     )
                     DropdownMenuItem(
                         text = { Text("🎥 Send Video", color = PhantomTextPrimary) },
                         onClick = {
                             showAttachmentMenu = false
-                            showInAppMediaPicker = "video"
-                            val permissions = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
-                                arrayOf(android.Manifest.permission.READ_MEDIA_VIDEO)
+                            val permission = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
+                                android.Manifest.permission.READ_MEDIA_VIDEO
                             } else {
-                                arrayOf(android.Manifest.permission.READ_EXTERNAL_STORAGE)
+                                android.Manifest.permission.READ_EXTERNAL_STORAGE
                             }
-                            permissionLauncher.launch(permissions)
+                            
+                            if (androidx.core.content.ContextCompat.checkSelfPermission(context, permission) == android.content.pm.PackageManager.PERMISSION_GRANTED) {
+                                inAppMediaList = queryRecentMedia(context, "video")
+                                showInAppMediaPicker = "video"
+                            } else {
+                                androidx.core.app.ActivityCompat.requestPermissions(
+                                    context as android.app.Activity,
+                                    arrayOf(permission),
+                                    103
+                                )
+                            }
                         }
                     )
                 }

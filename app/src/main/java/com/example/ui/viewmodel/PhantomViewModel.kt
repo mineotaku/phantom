@@ -90,6 +90,7 @@ class PhantomViewModel(
 
     val smtpRelayLogs = mutableStateListOf<String>()
     val showSmtpRelayLogs = MutableStateFlow(false)
+    val storagePermissionGrantedEvent = MutableStateFlow<String?>(null)
 
     // --- System Boot & Rekey ---
     val isBooted = MutableStateFlow(true)
@@ -1430,5 +1431,8 @@ class PhantomViewModel(
         val bytes = ByteArray(byteCount)
         secureRandom.nextBytes(bytes)
         return bytes.joinToString("") { "%02x".format(it) }
+    }
+    fun onStoragePermissionGranted(type: String) {
+        storagePermissionGrantedEvent.value = type
     }
 }

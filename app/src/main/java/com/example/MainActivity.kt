@@ -101,6 +101,18 @@ class MainActivity : FragmentActivity() {
 
         biometricPrompt.authenticate(promptInfo)
     }
+
+    override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        if (requestCode == 102 || requestCode == 103) {
+            val granted = grantResults.isNotEmpty() && grantResults[0] == android.content.pm.PackageManager.PERMISSION_GRANTED
+            if (granted) {
+                viewModel.onStoragePermissionGranted(if (requestCode == 102) "image" else "video")
+            } else {
+                android.widget.Toast.makeText(this, "Storage permission is required to select files", android.widget.Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
 }
 
 @Composable
