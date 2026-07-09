@@ -268,7 +268,6 @@ class PhantomViewModel(
             isSendingOtp.value = true
             loginErrorMsg.value = null
             generatedOtpCode.value = (100000..999999).random().toString()
-            showSmtpRelayLogs.value = true
             smtpRelayLogs.clear()
 
             smtpRelayLogs.add("SYS: Connecting to SMTP Server...")
@@ -995,6 +994,78 @@ class PhantomViewModel(
         }
     }
 
+    private fun showLocalNotification(sender: String, messageText: String) {
+        val context = getApplication<Application>().applicationContext
+        val channelId = "phantom_messages"
+        val notificationManager = context.getSystemService(android.content.Context.NOTIFICATION_SERVICE) as android.app.NotificationManager
+
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+            val channel = android.app.NotificationChannel(
+                channelId,
+                "Phantom Secure Messages",
+                android.app.NotificationManager.IMPORTANCE_HIGH
+            ).apply {
+                description = "Incoming end-to-end encrypted transmissions"
+            }
+            notificationManager.createNotificationChannel(channel)
+        }
+
+        val displayBody = if (messageText.startsWith("media:image:")) {
+            "📷 Photo"
+        } else if (messageText.startsWith("media:video:")) {
+            "🎥 Video"
+        } else {
+            messageText
+        }
+
+        val intent = android.content.Intent(context, com.example.MainActivity::class.java).apply {
+            flags = android.content.Intent.FLAG_ACTIVITY_NEW_TASK or android.content.Intent.FLAG_ACTIVITY_CLEAR_TASK
+        }
+        val pendingIntent = android.app.PendingIntent.getActivity(
+            context,
+            0,
+            intent,
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.M) {
+                android.app.PendingIntent.FLAG_IMMUTABLE or android.app.PendingIntent.FLAG_UPDATE_CURRENT
+            } else {
+                android.app.PendingIntent.FLAG_UPDATE_CURRENT
+            }
+        )
+
+        val notification = androidx.core.app.NotificationCompat.Builder(context, channelId)
+            .setSmallIcon(com.example.R.drawable.ic_launcher_foreground)
+            .setContentTitle(sender)
+            .setContentText(displayBody)
+            .setPriority(androidx.core.app.NotificationCompat.PRIORITY_HIGH)
+            .setAutoCancel(true)
+            .setContentIntent(pendingIntent)
+            .build()
+
+        notificationManager.notify(System.currentTimeMillis().toInt(), notification)
+    }
+
+
+    fun clearChatHistory() {
+        viewModelScope.launch {
+            repository.clearAllMessages()
+            addLog("SYS", "Local chat message history purged.")
+        }
+    }
+
+    fun resetApp() {
+        viewModelScope.launch {
+            repository.clearSession()
+            repository.clearAllMessages()
+            isLoggedIn.value = false
+            isRegistered.value = false
+            activeSessionToken.value = ""
+            val identityKeyPair = CryptoUtils.generateECKeyPair()
+            identityPrivateKey.value = CryptoUtils.privateKeyToBase64(identityKeyPair.private)
+            identityPublicKey.value = CryptoUtils.publicKeyToBase64(identityKeyPair.public)
+            addLog("SYS", "Local application container reset and new cryptographic ratchets generated.")
+        }
+    }
+
     // --- Sync contact list from the server ---
     fun syncContactsFromServer() {
         viewModelScope.launch(Dispatchers.IO) {
@@ -1137,7 +1208,8 @@ class PhantomViewModel(
                                         isRead = false,
                                         chatPartner = sender
                                     )
-                                    repository.insertMessage(incomingMsg)
+                                     repository.insertMessage(incomingMsg)
+                                     showLocalNotification(sender, finalDecryptedText)
 
                                     // Ensure sender user exists in local contact list with actual public key
                                     val resolvedPubKey = if (senderPublicKey.isNotBlank()) senderPublicKey else "id_pub_relayed"

@@ -4,14 +4,9 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.GppBad
-import androidx.compose.material.icons.filled.GppGood
-import androidx.compose.material.icons.filled.Refresh
-import androidx.compose.material.icons.filled.Security
-import androidx.compose.material.icons.filled.Warning
+import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
@@ -32,10 +27,7 @@ fun SecurityScreen(
     onTriggerBiometricAuth: (onSuccess: () -> Unit) -> Unit
 ) {
     val biometricEnabled by viewModel.biometricEnabled.collectAsState()
-    val playIntegrityVerified by viewModel.playIntegrityVerified.collectAsState()
-    val certificatePinningActive by viewModel.certificatePinningActive.collectAsState()
-    val threatLevel by viewModel.threatLevel.collectAsState()
-    val sqlCipherLocked by viewModel.sqlCipherLocked.collectAsState()
+    val loginEmail by viewModel.loginEmail.collectAsState()
 
     LazyColumn(
         modifier = Modifier
@@ -44,82 +36,18 @@ fun SecurityScreen(
             .padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
-        // Card 1: Threat Assessment Module
+        // Section Header
         item {
-            Card(
-                colors = CardDefaults.cardColors(containerColor = PhantomSurface),
-                shape = RoundedCornerShape(16.dp),
-                border = BorderStroke(1.dp, PhantomBorder),
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Column(modifier = Modifier.padding(20.dp)) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(Icons.Default.Security, contentDescription = null, tint = PhantomSecondary)
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text(
-                            text = "Threat Assessment Module",
-                            style = MaterialTheme.typography.titleLarge,
-                            fontWeight = FontWeight.Bold,
-                            color = PhantomTextPrimary
-                        )
-                    }
-                    
-                    Spacer(modifier = Modifier.height(16.dp))
-
-                    val (barColor, text, icon, desc) = when (threatLevel) {
-                        "SECURE" -> Quadruple(
-                            Color(0xFF81C784),
-                            "SANDBOX STATE: SECURE",
-                            Icons.Default.GppGood,
-                            "Play Integrity confirmed. SSL certificate pins verified. CrytoRatchet keys operating normally."
-                        )
-                        "WARNING" -> Quadruple(
-                            Color(0xFFFFB74D),
-                            "SANDBOX STATE: WARNING",
-                            Icons.Default.Warning,
-                            "Certificate pinning disabled. Intermediate relay connections might be susceptible to interception."
-                        )
-                        else -> Quadruple(
-                            PhantomError,
-                            "SANDBOX STATE: COMPROMISED",
-                            Icons.Default.GppBad,
-                            "Google Play Integrity verification failed. Operating environment signature integrity is untrusted."
-                        )
-                    }
-
-                    // Threat status bar
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(6.dp)
-                            .background(barColor, shape = RoundedCornerShape(3.dp))
-                    )
-
-                    Spacer(modifier = Modifier.height(16.dp))
-
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(icon, contentDescription = null, tint = barColor, modifier = Modifier.size(28.dp))
-                        Spacer(modifier = Modifier.width(12.dp))
-                        Text(
-                            text = text,
-                            fontWeight = FontWeight.ExtraBold,
-                            color = barColor,
-                            fontSize = 15.sp
-                        )
-                    }
-
-                    Spacer(modifier = Modifier.height(8.dp))
-
-                    Text(
-                        text = desc,
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = PhantomTextSecondary
-                    )
-                }
-            }
+            Text(
+                text = "Application Settings",
+                style = MaterialTheme.typography.headlineSmall,
+                fontWeight = FontWeight.Bold,
+                color = PhantomTextPrimary,
+                modifier = Modifier.padding(bottom = 8.dp)
+            )
         }
 
-        // Card 2: Security Profile Configuration
+        // Card 1: Account
         item {
             Card(
                 colors = CardDefaults.cardColors(containerColor = PhantomSurface),
@@ -129,28 +57,64 @@ fun SecurityScreen(
             ) {
                 Column(modifier = Modifier.padding(20.dp)) {
                     Text(
-                        text = "Security Profile Configuration",
+                        text = "Account Credentials",
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.Bold,
                         color = PhantomTextPrimary
                     )
                     Spacer(modifier = Modifier.height(4.dp))
                     Text(
-                        text = "Configure device hardware policy gates and network verification boundaries.",
+                        text = "Logged in secure identity session.",
                         style = MaterialTheme.typography.bodyMedium,
                         color = PhantomTextSecondary
                     )
                     
                     Spacer(modifier = Modifier.height(16.dp))
 
-                    // Biometric lock Screen Row
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column {
+                            Text("Active Email", fontWeight = FontWeight.Bold, color = PhantomTextPrimary, fontSize = 14.sp)
+                            Text(loginEmail, style = MaterialTheme.typography.labelSmall, color = PhantomTextSecondary)
+                        }
+                    }
+                }
+            }
+        }
+
+        // Card 2: Preference Gates
+        item {
+            Card(
+                colors = CardDefaults.cardColors(containerColor = PhantomSurface),
+                shape = RoundedCornerShape(16.dp),
+                border = BorderStroke(1.dp, PhantomBorder),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(modifier = Modifier.padding(20.dp)) {
+                    Text(
+                        text = "Preferences & Privacy",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = PhantomTextPrimary
+                    )
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                        text = "Enforce biological and local device policy checks.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = PhantomTextSecondary
+                    )
+                    
+                    Spacer(modifier = Modifier.height(16.dp))
+
                     SecurityGuardToggleRow(
-                        title = "Biometric Lock Screen",
-                        description = "Enforce fingerprint or face lock authentication on app resume gates.",
+                        title = "Biometric App Lock",
+                        description = "Enforce fingerprint or face lock authentication on app startup.",
                         checked = biometricEnabled,
                         onCheckedChange = { enabled ->
                             if (enabled) {
-                                // Trigger actual device biometric prompt verification before turning on
                                 onTriggerBiometricAuth {
                                     viewModel.biometricEnabled.value = true
                                     viewModel.addLog("SEC", "Biometric unlock enrolled successfully.")
@@ -161,48 +125,60 @@ fun SecurityScreen(
                             }
                         }
                     )
-
-                    HorizontalDivider(color = PhantomBorder, modifier = Modifier.padding(vertical = 12.dp))
-
-                    // Google Play Integrity Row
-                    SecurityGuardToggleRow(
-                        title = "Google Play Integrity Attestation",
-                        description = "Verify local binary signature and system integrity checks before server handshake.",
-                        checked = playIntegrityVerified,
-                        onCheckedChange = { viewModel.togglePlayIntegrity(it) }
-                    )
-
-                    HorizontalDivider(color = PhantomBorder, modifier = Modifier.padding(vertical = 12.dp))
-
-                    // Certificate Pinning Row
-                    SecurityGuardToggleRow(
-                        title = "Certificate Pinning Layer",
-                        description = "Hardcode server certificate hash prints to mitigate Man-In-The-Middle network attacks.",
-                        checked = certificatePinningActive,
-                        onCheckedChange = { viewModel.toggleCertPinning(it) }
-                    )
                 }
             }
         }
 
-        // Rotate Ratchets FAB Button row
+        // Card 3: Storage Actions
+        item {
+            Card(
+                colors = CardDefaults.cardColors(containerColor = PhantomSurface),
+                shape = RoundedCornerShape(16.dp),
+                border = BorderStroke(1.dp, PhantomBorder),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(modifier = Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                    Text(
+                        text = "Storage & Cleanup",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = PhantomTextPrimary
+                    )
+
+                    Button(
+                        onClick = { viewModel.clearChatHistory() },
+                        colors = ButtonDefaults.buttonColors(containerColor = PhantomSurfaceVariant, contentColor = PhantomSecondary),
+                        border = BorderStroke(1.dp, PhantomBorder),
+                        shape = RoundedCornerShape(8.dp),
+                        modifier = Modifier.fillMaxWidth().height(48.dp)
+                    ) {
+                        Text("CLEAR ALL CHAT HISTORY", fontWeight = FontWeight.Bold)
+                    }
+
+                    Button(
+                        onClick = { viewModel.resetApp() },
+                        colors = ButtonDefaults.buttonColors(containerColor = PhantomSurfaceVariant, contentColor = PhantomError),
+                        border = BorderStroke(1.dp, PhantomBorder),
+                        shape = RoundedCornerShape(8.dp),
+                        modifier = Modifier.fillMaxWidth().height(48.dp)
+                    ) {
+                        Text("RESET APPLICATION CONTAINER", fontWeight = FontWeight.Bold)
+                    }
+                }
+            }
+        }
+
+        // Logout Action
         item {
             Button(
-                onClick = { viewModel.triggerSecureBoot() },
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = PhantomSurfaceVariant,
-                    contentColor = PhantomSecondary
-                ),
-                border = BorderStroke(1.dp, PhantomBorder),
+                onClick = { viewModel.logout() },
+                colors = ButtonDefaults.buttonColors(containerColor = PhantomError, contentColor = Color.White),
                 shape = RoundedCornerShape(12.dp),
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(50.dp)
-                    .testTag("rotate_keys_bottom_button")
+                modifier = Modifier.fillMaxWidth().height(50.dp)
             ) {
-                Icon(Icons.Default.Refresh, contentDescription = null, tint = PhantomSecondary)
+                Icon(Icons.Default.Logout, contentDescription = null, tint = Color.White)
                 Spacer(modifier = Modifier.width(8.dp))
-                Text("ROTATE SYSTEM ENCRYPTION RATCHETS", fontWeight = FontWeight.Bold)
+                Text("LOG OUT SECURE SESSION", fontWeight = FontWeight.Bold, color = Color.White)
             }
         }
     }
@@ -247,5 +223,3 @@ fun SecurityGuardToggleRow(
         )
     }
 }
-
-private data class Quadruple<A, B, C, D>(val first: A, val second: B, val third: C, val fourth: D)

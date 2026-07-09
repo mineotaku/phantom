@@ -604,13 +604,6 @@ fun ChatDetailScreen(
                                 )
                                 Spacer(modifier = Modifier.width(4.dp))
                                 Text(
-                                    text = "E2EE",
-                                    fontSize = 8.sp,
-                                    color = PhantomTextSecondary.copy(alpha = 0.8f),
-                                    fontWeight = FontWeight.Bold
-                                )
-                                Spacer(modifier = Modifier.width(8.dp))
-                                Text(
                                     text = msg.timestamp,
                                     fontSize = 9.sp,
                                     color = PhantomTextSecondary.copy(alpha = 0.8f)
@@ -631,61 +624,7 @@ fun ChatDetailScreen(
             }
         }
 
-        // Encryption Pipeline visualizer
-        AnimatedVisibility(
-            visible = isEncryptingInProgress,
-            enter = expandVertically(),
-            exit = shrinkVertically()
-        ) {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .background(PhantomSurfaceVariant)
-                    .border(BorderStroke(1.dp, PhantomBorder))
-                    .padding(16.dp)
-            ) {
-                Text(
-                    text = "Signal Cryptographic Pipeline Active",
-                    fontWeight = FontWeight.Bold,
-                    color = PhantomSecondary,
-                    style = MaterialTheme.typography.titleMedium
-                )
-                Spacer(modifier = Modifier.height(12.dp))
 
-                viewModel.activePipelineSteps.forEachIndexed { idx, step ->
-                    val opacity = if (idx == activePipelineStep) 1.0f else 0.5f
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(vertical = 4.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Icon(
-                            imageVector = step.icon,
-                            contentDescription = null,
-                            tint = step.color.copy(alpha = opacity),
-                            modifier = Modifier.size(20.dp)
-                        )
-                        Spacer(modifier = Modifier.width(12.dp))
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text(
-                                text = step.title,
-                                fontWeight = FontWeight.Bold,
-                                color = PhantomTextPrimary.copy(alpha = opacity),
-                                style = MaterialTheme.typography.bodyMedium
-                            )
-                            Text(
-                                text = step.data,
-                                color = PhantomTextSecondary.copy(alpha = opacity),
-                                style = MaterialTheme.typography.labelSmall,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
-                            )
-                        }
-                    }
-                }
-            }
-        }
 
         // Typing Status Dot Simulation
         typingStatus?.let { status ->

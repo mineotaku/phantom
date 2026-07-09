@@ -124,40 +124,26 @@ fun MainScaffold(
                 containerColor = Color.White,
                 tonalElevation = 8.dp
             ) {
-                // Tab 0: Identity
-                NavigationBarItem(
-                    selected = currentRoute == "identity",
-                    onClick = { navController.navigate("identity") { launchSingleTop = true } },
-                    icon = { Icon(if (currentRoute == "identity") Icons.Filled.VpnKey else Icons.Outlined.VpnKey, contentDescription = "Identity") },
-                    label = { Text("Identity") }
-                )
-                // Tab 1: Messages
+                // Tab 0: Chats
                 NavigationBarItem(
                     selected = currentRoute == "messages",
                     onClick = { navController.navigate("messages") { launchSingleTop = true } },
-                    icon = { Icon(if (currentRoute == "messages") Icons.Filled.Forum else Icons.Outlined.Forum, contentDescription = "Messages") },
-                    label = { Text("Messages") }
+                    icon = { Icon(if (currentRoute == "messages") Icons.Filled.Forum else Icons.Outlined.Forum, contentDescription = "Chats") },
+                    label = { Text("Chats") }
                 )
-                // Tab 2: Storage
+                // Tab 1: Profile
                 NavigationBarItem(
-                    selected = currentRoute == "storage",
-                    onClick = { navController.navigate("storage") { launchSingleTop = true } },
-                    icon = { Icon(if (currentRoute == "storage") Icons.Filled.Storage else Icons.Outlined.Storage, contentDescription = "Storage") },
-                    label = { Text("Storage") }
+                    selected = currentRoute == "identity",
+                    onClick = { navController.navigate("identity") { launchSingleTop = true } },
+                    icon = { Icon(if (currentRoute == "identity") Icons.Filled.Person else Icons.Outlined.Person, contentDescription = "Profile") },
+                    label = { Text("Profile") }
                 )
-                // Tab 3: Network
-                NavigationBarItem(
-                    selected = currentRoute == "network",
-                    onClick = { navController.navigate("network") { launchSingleTop = true } },
-                    icon = { Icon(if (currentRoute == "network") Icons.Filled.NetworkWifi else Icons.Outlined.NetworkWifi, contentDescription = "Network") },
-                    label = { Text("Network") }
-                )
-                // Tab 4: Security
+                // Tab 2: Settings
                 NavigationBarItem(
                     selected = currentRoute == "security",
                     onClick = { navController.navigate("security") { launchSingleTop = true } },
-                    icon = { Icon(if (currentRoute == "security") Icons.Filled.Security else Icons.Outlined.Security, contentDescription = "Security") },
-                    label = { Text("Security") }
+                    icon = { Icon(if (currentRoute == "security") Icons.Filled.Settings else Icons.Outlined.Settings, contentDescription = "Settings") },
+                    label = { Text("Settings") }
                 )
             }
         }

@@ -1,7 +1,12 @@
 package com.example.ui.screens
 
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.res.painterResource
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -59,14 +64,26 @@ fun LoginScreen(viewModel: PhantomViewModel) {
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.Center
         ) {
-            // Header Logo
+            Image(
+                painter = painterResource(id = com.example.R.drawable.logo),
+                contentDescription = "Phantom Logo",
+                modifier = Modifier
+                    .size(115.dp)
+                    .clip(CircleShape)
+                    .border(2.dp, PhantomSecondary, CircleShape)
+            )
+            
+            Spacer(modifier = Modifier.height(16.dp))
+
             Text(
                 text = "PHANTOM",
-                style = MaterialTheme.typography.displayLarge,
+                style = MaterialTheme.typography.headlineLarge,
                 fontWeight = FontWeight.ExtraBold,
                 color = PhantomSecondary,
                 letterSpacing = 4.sp
             )
+            
+            Spacer(modifier = Modifier.height(6.dp))
             
             Text(
                 text = "Privacy-First Secure E2EE Messenger",
@@ -76,7 +93,7 @@ fun LoginScreen(viewModel: PhantomViewModel) {
                 textAlign = TextAlign.Center
             )
             
-            Spacer(modifier = Modifier.height(32.dp))
+            Spacer(modifier = Modifier.height(24.dp))
             
             if (loginSuccessSplash) {
                 Card(
@@ -287,69 +304,6 @@ fun LoginScreen(viewModel: PhantomViewModel) {
             }
         }
         
-        // SMTP Relay Handshake Terminal Button overlay
-        if (showSmtpRelayLogs) {
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .background(Color.Black.copy(alpha = 0.5f))
-                    .padding(24.dp),
-                contentAlignment = Alignment.Center
-            ) {
-                Card(
-                    colors = CardDefaults.cardColors(containerColor = PhantomSurfaceVariant),
-                    border = BorderStroke(1.dp, PhantomBorder),
-                    shape = RoundedCornerShape(16.dp),
-                    modifier = Modifier.fillMaxWidth().height(450.dp)
-                ) {
-                    Column(modifier = Modifier.padding(16.dp)) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Icon(Icons.Default.Terminal, contentDescription = null, tint = PhantomSecondary)
-                                Spacer(modifier = Modifier.width(8.dp))
-                                Text("SMTP Identity Relay Handshake", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-                            }
-                            TextButton(
-                                onClick = { viewModel.showSmtpRelayLogs.value = false },
-                                colors = ButtonDefaults.textButtonColors(contentColor = PhantomError)
-                            ) {
-                                Text("CLOSE", fontWeight = FontWeight.Bold)
-                            }
-                        }
-                        
-                        HorizontalDivider(color = PhantomBorder, modifier = Modifier.padding(vertical = 8.dp))
-                        
-                        LazyColumn(
-                            reverseLayout = false,
-                            modifier = Modifier
-                                .weight(1f)
-                                .background(Color(0xFF1E1E1E), shape = RoundedCornerShape(8.dp))
-                                .padding(12.dp)
-                                .fillMaxWidth()
-                        ) {
-                            items(viewModel.smtpRelayLogs) { log ->
-                                val color = when {
-                                    log.startsWith("ERROR") -> Color(0xFFE57373)
-                                    log.startsWith("SUCCESS") || log.startsWith("220") || log.startsWith("250") -> Color(0xFF81C784)
-                                    log.startsWith("SEC") -> Color(0xFF64B5F6)
-                                    else -> Color(0xFFE0E0E0)
-                                }
-                                Text(
-                                    text = log,
-                                    fontFamily = FontFamily.Monospace,
-                                    fontSize = 11.sp,
-                                    color = color,
-                                    modifier = Modifier.padding(vertical = 2.dp)
-                                )
-                            }
-                        }
-                    }
-                }
-            }
-        }
+
     }
 }
