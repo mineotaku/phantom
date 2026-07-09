@@ -490,6 +490,8 @@ fun ChatDetailScreen(
         }
 
         // Message bubbles list
+        // Message bubbles list
+        val groupedItems = remember(messageList) { groupMessages(messageList) }
         LazyColumn(
             reverseLayout = false,
             modifier = Modifier
@@ -497,127 +499,141 @@ fun ChatDetailScreen(
                 .padding(horizontal = 16.dp),
             contentPadding = PaddingValues(bottom = 16.dp)
         ) {
-            items(messageList) { msg ->
-                val isMe = msg.sender == loginEmail.substringBefore("@")
-                val alignment = if (isMe) Alignment.End else Alignment.Start
-                val bubbleColor = if (isMe) PhantomSentBubble else PhantomReceivedBubble
+            items(groupedItems) { item ->
+                if (item.isMediaGroup) {
+                    RenderMediaGroup(
+                        item = item,
+                        context = context,
+                        loginEmail = loginEmail,
+                        showActionDialogForMessage = { showActionDialogForMessage = it }
+                    )
+                } else {
+                    val msg = item.mainMessage
+                    val isMe = msg.sender == loginEmail.substringBefore("@")
+                    val alignment = if (isMe) Alignment.End else Alignment.Start
+                    val bubbleColor = if (isMe) PhantomSentBubble else PhantomReceivedBubble
 
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(vertical = 4.dp),
-                    horizontalAlignment = alignment
-                ) {
-                    Card(
-                        colors = CardDefaults.cardColors(containerColor = bubbleColor),
-                        shape = RoundedCornerShape(
-                            topStart = 16.dp,
-                            topEnd = 16.dp,
-                            bottomStart = if (isMe) 16.dp else 4.dp,
-                            bottomEnd = if (isMe) 4.dp else 16.dp
-                        ),
+                    Column(
                         modifier = Modifier
-                            .widthIn(max = 280.dp)
-                            .combinedClickable(
-                                onClick = {},
-                                onLongClick = { showActionDialogForMessage = msg }
-                            )
+                            .fillMaxWidth()
+                            .padding(vertical = 4.dp),
+                        horizontalAlignment = alignment
                     ) {
-                        Column(modifier = Modifier.padding(12.dp)) {
-                            if (msg.text.startsWith("media_pending:")) {
-                                val parts = msg.text.split(":")
-                                val mediaType = parts.getOrNull(1) ?: "image"
-                                Row(verticalAlignment = Alignment.CenterVertically) {
-                                    CircularProgressIndicator(modifier = Modifier.size(16.dp), color = PhantomSecondary, strokeWidth = 2.dp)
-                                    Spacer(modifier = Modifier.width(8.dp))
-                                    Text("Decrypting secure $mediaType...", style = MaterialTheme.typography.bodyMedium, color = PhantomTextSecondary)
-                                }
-                            } else if (msg.text.startsWith("media:image:")) {
-                                val localPath = msg.text.substringAfter("media:image:")
-                                val bitmap = remember(localPath) {
-                                    BitmapFactory.decodeFile(localPath)?.asImageBitmap()
-                                }
-                                if (bitmap != null) {
-                                    Image(
-                                        bitmap = bitmap,
-                                        contentDescription = null,
+                        Card(
+                            colors = CardDefaults.cardColors(containerColor = bubbleColor),
+                            shape = RoundedCornerShape(
+                                topStart = 16.dp,
+                                topEnd = 16.dp,
+                                bottomStart = if (isMe) 16.dp else 4.dp,
+                                bottomEnd = if (isMe) 4.dp else 16.dp
+                            ),
+                            modifier = Modifier
+                                .widthIn(max = 280.dp)
+                                .combinedClickable(
+                                    onClick = {},
+                                    onLongClick = { showActionDialogForMessage = msg }
+                                )
+                        ) {
+                            Column(modifier = Modifier.padding(12.dp)) {
+                                if (msg.text.startsWith("media_pending:")) {
+                                    val parts = msg.text.split(":")
+                                    val mediaType = parts.getOrNull(1) ?: "image"
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        CircularProgressIndicator(modifier = Modifier.size(16.dp), color = PhantomSecondary, strokeWidth = 2.dp)
+                                        Spacer(modifier = Modifier.width(8.dp))
+                                        Text("Decrypting secure $mediaType...", style = MaterialTheme.typography.bodyMedium, color = PhantomTextSecondary)
+                                    }
+                                } else if (msg.text.startsWith("media:image:")) {
+                                    val localPath = msg.text.substringAfter("media:image:")
+                                    val bitmap = remember(localPath) {
+                                        BitmapFactory.decodeFile(localPath)?.asImageBitmap()
+                                    }
+                                    if (bitmap != null) {
+                                        Image(
+                                            bitmap = bitmap,
+                                            contentDescription = null,
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .height(200.dp)
+                                                .clip(RoundedCornerShape(8.dp)),
+                                            contentScale = ContentScale.Crop
+                                        )
+                                    } else {
+                                        Text("[Image Unavailable]", color = PhantomError)
+                                    }
+                                } else if (msg.text.startsWith("media:video:")) {
+                                    val localPath = msg.text.substringAfter("media:video:")
+                                    val videoFile = File(localPath)
+                                    Box(
                                         modifier = Modifier
                                             .fillMaxWidth()
-                                            .height(200.dp)
-                                            .clip(RoundedCornerShape(8.dp)),
-                                        contentScale = ContentScale.Crop
-                                    )
-                                } else {
-                                    Text("[Image Unavailable]", color = PhantomError)
-                                }
-                            } else if (msg.text.startsWith("media:video:")) {
-                                val localPath = msg.text.substringAfter("media:video:")
-                                val videoFile = File(localPath)
-                                Box(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .height(150.dp)
-                                        .background(Color.Black, shape = RoundedCornerShape(8.dp))
-                                        .clickable {
-                                            try {
-                                                val videoUri = FileProvider.getUriForFile(
-                                                    context,
-                                                    "com.example.fileprovider",
-                                                    videoFile
-                                                )
-                                                val intent = Intent(Intent.ACTION_VIEW).apply {
-                                                    setDataAndType(videoUri, "video/*")
-                                                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                                            .height(150.dp)
+                                            .background(Color.Black, shape = RoundedCornerShape(8.dp))
+                                            .clickable {
+                                                try {
+                                                    val videoUri = FileProvider.getUriForFile(
+                                                        context,
+                                                        "com.example.fileprovider",
+                                                        videoFile
+                                                    )
+                                                    val intent = Intent(Intent.ACTION_VIEW).apply {
+                                                        setDataAndType(videoUri, "video/*")
+                                                        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                                                    }
+                                                    context.startActivity(intent)
+                                                } catch (e: Exception) {
+                                                    try {
+                                                        val intent = Intent(Intent.ACTION_VIEW).apply {
+                                                            setDataAndType(Uri.fromFile(videoFile), "video/*")
+                                                        }
+                                                        context.startActivity(intent)
+                                                    } catch (e2: Exception) {
+                                                        Toast.makeText(context, "Cannot play secure video", Toast.LENGTH_SHORT).show()
+                                                    }
                                                 }
-                                                context.startActivity(intent)
-                                            } catch (e: Exception) {
-                                                val intent = Intent(Intent.ACTION_VIEW).apply {
-                                                    setDataAndType(Uri.fromFile(videoFile), "video/*")
-                                                }
-                                                context.startActivity(intent)
-                                            }
-                                        },
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                        Icon(Icons.Default.PlayCircle, contentDescription = null, tint = Color.White, modifier = Modifier.size(48.dp))
-                                        Spacer(modifier = Modifier.height(8.dp))
-                                        Text("Play Secure Video", color = Color.White, style = MaterialTheme.typography.bodyMedium)
+                                            },
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                            Icon(Icons.Default.PlayCircle, contentDescription = null, tint = Color.White, modifier = Modifier.size(48.dp))
+                                            Spacer(modifier = Modifier.height(8.dp))
+                                            Text("Play Secure Video", color = Color.White, style = MaterialTheme.typography.bodyMedium)
+                                        }
                                     }
-                                }
-                            } else {
-                                Text(
-                                    text = msg.text,
-                                    style = MaterialTheme.typography.bodyLarge,
-                                    color = PhantomTextPrimary
-                                )
-                            }
-                            Spacer(modifier = Modifier.height(4.dp))
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.End,
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Icon(
-                                    Icons.Default.Lock,
-                                    contentDescription = null,
-                                    tint = PhantomSecondary.copy(alpha = 0.6f),
-                                    modifier = Modifier.size(10.dp)
-                                )
-                                Spacer(modifier = Modifier.width(4.dp))
-                                Text(
-                                    text = msg.timestamp,
-                                    fontSize = 9.sp,
-                                    color = PhantomTextSecondary.copy(alpha = 0.8f)
-                                )
-                                if (isMe) {
-                                    Spacer(modifier = Modifier.width(4.dp))
-                                    Icon(
-                                        imageVector = if (msg.isDelivered) Icons.Default.DoneAll else Icons.Default.Done,
-                                        contentDescription = null,
-                                        tint = if (msg.isDelivered) Color(0xFF81C784) else PhantomTertiary,
-                                        modifier = Modifier.size(12.dp)
+                                } else {
+                                    Text(
+                                        text = msg.text,
+                                        style = MaterialTheme.typography.bodyLarge,
+                                        color = PhantomTextPrimary
                                     )
+                                }
+                                Spacer(modifier = Modifier.height(4.dp))
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.End,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Icon(
+                                        Icons.Default.Lock,
+                                        contentDescription = null,
+                                        tint = PhantomSecondary.copy(alpha = 0.6f),
+                                        modifier = Modifier.size(10.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    Text(
+                                        text = msg.timestamp,
+                                        fontSize = 9.sp,
+                                        color = PhantomTextSecondary.copy(alpha = 0.8f)
+                                    )
+                                    if (isMe) {
+                                        Spacer(modifier = Modifier.width(4.dp))
+                                        Icon(
+                                            imageVector = if (msg.isDelivered) Icons.Default.DoneAll else Icons.Default.Done,
+                                            contentDescription = null,
+                                            tint = if (msg.isDelivered) Color(0xFF81C784) else PhantomTertiary,
+                                            modifier = Modifier.size(12.dp)
+                                        )
+                                    }
                                 }
                             }
                         }
@@ -875,19 +891,20 @@ fun ChatDetailScreen(
     // Custom In-App Gallery Media Picker Dialog
     if (showInAppMediaPicker != null) {
         val pickerType = showInAppMediaPicker!!
+        val selectedUris = remember { mutableStateListOf<Uri>() }
         AlertDialog(
             onDismissRequest = { showInAppMediaPicker = null },
             title = { 
                 Text(
-                    text = if (pickerType == "image") "Select Secure Photo" else "Select Secure Video",
+                    text = if (pickerType == "image") "Select Secure Photos" else "Select Secure Videos",
                     fontWeight = FontWeight.Bold,
                     color = PhantomTextPrimary
                 ) 
             },
             text = {
-                Column(modifier = Modifier.fillMaxWidth().height(320.dp)) {
+                Column(modifier = Modifier.fillMaxWidth().height(340.dp)) {
                     Text(
-                        text = "Encrypted in memory. Storage files are read directly without third-party apps.",
+                        text = "Tap to select multiple items. Encrypted completely in memory.",
                         style = MaterialTheme.typography.labelSmall,
                         color = PhantomTextSecondary,
                         modifier = Modifier.padding(bottom = 12.dp)
@@ -913,13 +930,23 @@ fun ChatDetailScreen(
                         ) {
                             items(inAppMediaList.size) { index ->
                                 val uri = inAppMediaList[index]
+                                val isSelected = selectedUris.contains(uri)
+                                val selectionIndex = selectedUris.indexOf(uri) + 1
                                 Box(
                                     modifier = Modifier
                                         .aspectRatio(1f)
                                         .clip(RoundedCornerShape(8.dp))
+                                        .border(
+                                            width = if (isSelected) 3.dp else 0.dp,
+                                            color = if (isSelected) PhantomSecondary else Color.Transparent,
+                                            shape = RoundedCornerShape(8.dp)
+                                        )
                                         .clickable {
-                                            viewModel.uploadMediaAndSendMessage(uri, pickerType, partner)
-                                            showInAppMediaPicker = null
+                                            if (isSelected) {
+                                                selectedUris.remove(uri)
+                                            } else {
+                                                selectedUris.add(uri)
+                                            }
                                         }
                                 ) {
                                     AsyncThumbnail(uri = uri, context = context, modifier = Modifier.fillMaxSize())
@@ -927,10 +954,32 @@ fun ChatDetailScreen(
                                         Box(
                                             modifier = Modifier
                                                 .fillMaxSize()
-                                                .background(Color.Black.copy(alpha = 0.3f)),
+                                                .background(Color.Black.copy(alpha = 0.2f)),
                                             contentAlignment = Alignment.Center
                                         ) {
                                             Icon(Icons.Default.PlayArrow, contentDescription = null, tint = Color.White, modifier = Modifier.size(24.dp))
+                                        }
+                                    }
+                                    if (isSelected) {
+                                        Box(
+                                            modifier = Modifier
+                                                .fillMaxSize()
+                                                .background(Color.Black.copy(alpha = 0.2f))
+                                        )
+                                        Box(
+                                            modifier = Modifier
+                                                .padding(6.dp)
+                                                .size(20.dp)
+                                                .background(PhantomSecondary, shape = CircleShape)
+                                                .align(Alignment.TopEnd),
+                                            contentAlignment = Alignment.Center
+                                        ) {
+                                            Text(
+                                                text = selectionIndex.toString(),
+                                                color = Color.White,
+                                                fontSize = 10.sp,
+                                                fontWeight = FontWeight.Bold
+                                            )
                                         }
                                     }
                                 }
@@ -940,14 +989,239 @@ fun ChatDetailScreen(
                 }
             },
             confirmButton = {
+                Button(
+                    onClick = {
+                        selectedUris.forEach { uri ->
+                            viewModel.uploadMediaAndSendMessage(uri, pickerType, partner)
+                        }
+                        showInAppMediaPicker = null
+                    },
+                    enabled = selectedUris.isNotEmpty(),
+                    colors = ButtonDefaults.buttonColors(containerColor = PhantomSecondary)
+                ) {
+                    Text("SEND (${selectedUris.size})", color = Color.White, fontWeight = FontWeight.Bold)
+                }
+            },
+            dismissButton = {
                 TextButton(onClick = { showInAppMediaPicker = null }) {
-                    Text("CANCEL", color = PhantomSecondary, fontWeight = FontWeight.Bold)
+                    Text("CANCEL", color = PhantomTextSecondary, fontWeight = FontWeight.Bold)
                 }
             },
             containerColor = PhantomSurface,
             shape = RoundedCornerShape(16.dp),
             modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp)
         )
+    }
+}
+
+data class MessageGroupItem(
+    val mainMessage: ChatMessage,
+    val mediaMessages: List<ChatMessage> = emptyList(),
+    val isMediaGroup: Boolean = false
+)
+
+private fun groupMessages(messages: List<ChatMessage>): List<MessageGroupItem> {
+    val grouped = mutableListOf<MessageGroupItem>()
+    var currentGroup = mutableListOf<ChatMessage>()
+    
+    for (msg in messages) {
+        val isMedia = msg.text.startsWith("media:") || msg.text.startsWith("media_pending:")
+        if (isMedia) {
+            val lastGroupMsg = currentGroup.lastOrNull()
+            if (lastGroupMsg != null && 
+                lastGroupMsg.sender == msg.sender && 
+                Math.abs(msg.timestampMillis - lastGroupMsg.timestampMillis) < 120000L) {
+                currentGroup.add(msg)
+            } else {
+                if (currentGroup.isNotEmpty()) {
+                    grouped.add(
+                        MessageGroupItem(
+                            mainMessage = currentGroup.first(),
+                            mediaMessages = currentGroup.toList(),
+                            isMediaGroup = currentGroup.size > 1
+                        )
+                    )
+                    currentGroup.clear()
+                }
+                currentGroup.add(msg)
+            }
+        } else {
+            if (currentGroup.isNotEmpty()) {
+                grouped.add(
+                    MessageGroupItem(
+                        mainMessage = currentGroup.first(),
+                        mediaMessages = currentGroup.toList(),
+                        isMediaGroup = currentGroup.size > 1
+                    )
+                )
+                currentGroup.clear()
+            }
+            grouped.add(MessageGroupItem(mainMessage = msg, isMediaGroup = false))
+        }
+    }
+    
+    if (currentGroup.isNotEmpty()) {
+        grouped.add(
+            MessageGroupItem(
+                mainMessage = currentGroup.first(),
+                mediaMessages = currentGroup.toList(),
+                isMediaGroup = currentGroup.size > 1
+            )
+        )
+    }
+    
+    return grouped
+}
+
+@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
+@Composable
+fun RenderMediaGroup(
+    item: MessageGroupItem,
+    context: android.content.Context,
+    loginEmail: String,
+    showActionDialogForMessage: (ChatMessage) -> Unit
+) {
+    val isMe = item.mainMessage.sender == loginEmail.substringBefore("@")
+    val alignment = if (isMe) Alignment.End else Alignment.Start
+    val bubbleColor = if (isMe) PhantomSentBubble else PhantomReceivedBubble
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 4.dp),
+        horizontalAlignment = alignment
+    ) {
+        Card(
+            colors = CardDefaults.cardColors(containerColor = bubbleColor),
+            shape = RoundedCornerShape(16.dp),
+            modifier = Modifier.width(260.dp)
+        ) {
+            Column(modifier = Modifier.padding(8.dp)) {
+                Text(
+                    text = "Secure Media Gallery (${item.mediaMessages.size} files)",
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = PhantomTextSecondary,
+                    modifier = Modifier.padding(bottom = 6.dp, start = 4.dp)
+                )
+
+                val chunked = item.mediaMessages.chunked(2)
+                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    chunked.forEach { rowItems ->
+                        Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                            rowItems.forEach { subMsg ->
+                                Box(
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .aspectRatio(1f)
+                                        .clip(RoundedCornerShape(8.dp))
+                                        .combinedClickable(
+                                            onClick = {},
+                                            onLongClick = { showActionDialogForMessage(subMsg) }
+                                        )
+                                ) {
+                                    MediaPreviewContent(msg = subMsg, context = context)
+                                }
+                            }
+                            if (rowItems.size < 2) {
+                                Spacer(modifier = Modifier.weight(1f))
+                            }
+                        }
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(6.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(end = 4.dp),
+                    horizontalArrangement = Arrangement.End,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(
+                        Icons.Default.Lock,
+                        contentDescription = null,
+                        tint = PhantomSecondary.copy(alpha = 0.6f),
+                        modifier = Modifier.size(10.dp)
+                    )
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text(
+                        text = item.mainMessage.timestamp,
+                        fontSize = 9.sp,
+                        color = PhantomTextSecondary.copy(alpha = 0.8f)
+                    )
+                    if (isMe) {
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Icon(
+                            imageVector = if (item.mainMessage.isDelivered) Icons.Default.DoneAll else Icons.Default.Done,
+                            contentDescription = null,
+                            tint = if (item.mainMessage.isDelivered) Color(0xFF81C784) else PhantomTertiary,
+                            modifier = Modifier.size(12.dp)
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun MediaPreviewContent(msg: ChatMessage, context: android.content.Context) {
+    if (msg.text.startsWith("media_pending:")) {
+        val parts = msg.text.split(":")
+        val mediaType = parts.getOrNull(1) ?: "image"
+        Box(modifier = Modifier.fillMaxSize().background(Color.DarkGray), contentAlignment = Alignment.Center) {
+            CircularProgressIndicator(modifier = Modifier.size(24.dp), color = PhantomSecondary, strokeWidth = 2.dp)
+        }
+    } else if (msg.text.startsWith("media:image:")) {
+        val localPath = msg.text.substringAfter("media:image:")
+        val bitmap = remember(localPath) {
+            BitmapFactory.decodeFile(localPath)?.asImageBitmap()
+        }
+        if (bitmap != null) {
+            Image(
+                bitmap = bitmap,
+                contentDescription = null,
+                contentScale = ContentScale.Crop,
+                modifier = Modifier.fillMaxSize()
+            )
+        } else {
+            Box(modifier = Modifier.fillMaxSize().background(Color.Gray), contentAlignment = Alignment.Center) {
+                Text("[Image]", color = Color.White, fontSize = 12.sp)
+            }
+        }
+    } else if (msg.text.startsWith("media:video:")) {
+        val localPath = msg.text.substringAfter("media:video:")
+        val videoFile = File(localPath)
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(Color.Black)
+                .clickable {
+                    try {
+                        val videoUri = FileProvider.getUriForFile(
+                            context,
+                            "com.example.fileprovider",
+                            videoFile
+                        )
+                        val intent = Intent(Intent.ACTION_VIEW).apply {
+                            setDataAndType(videoUri, "video/*")
+                            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                        }
+                        context.startActivity(intent)
+                    } catch (e: Exception) {
+                        try {
+                            val intent = Intent(Intent.ACTION_VIEW).apply {
+                                setDataAndType(Uri.fromFile(videoFile), "video/*")
+                            }
+                            context.startActivity(intent)
+                        } catch (e2: Exception) {
+                            Toast.makeText(context, "Cannot play secure video", Toast.LENGTH_SHORT).show()
+                        }
+                    }
+                },
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(Icons.Default.PlayCircle, contentDescription = null, tint = Color.White, modifier = Modifier.size(36.dp))
+        }
     }
 }
 

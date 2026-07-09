@@ -192,7 +192,7 @@ class PhantomViewModel(
                     if (partner != null) {
                         repository.getMessagesForPartnerFlow(partner.name).collectLatest { roomMsgs ->
                             _messageList.value = roomMsgs.map {
-                                ChatMessage(it.id, it.sender, it.text, it.ciphertext, it.mac, it.timestamp, it.isEncrypted, it.isDelivered, it.isRead)
+                                ChatMessage(it.id, it.sender, it.text, it.ciphertext, it.mac, it.timestamp, it.timestampMillis, it.isEncrypted, it.isDelivered, it.isRead)
                             }
                             // Auto mark messages as read
                             if (partner.unreadCount > 0) {
@@ -519,7 +519,8 @@ class PhantomViewModel(
             activePipelineStep.value = 4
             delay(300)
 
-            val timestamp = SimpleDateFormat("h:mm a", Locale.getDefault()).format(Date())
+            val now = System.currentTimeMillis()
+            val timestamp = SimpleDateFormat("h:mm a", Locale.getDefault()).format(Date(now))
             val finalMsg = ChatMessage(
                 id = "msg_" + Random.nextInt(10000, 99999),
                 sender = senderName,
@@ -527,6 +528,7 @@ class PhantomViewModel(
                 ciphertext = ciphertextHex,
                 mac = macCode,
                 timestamp = timestamp,
+                timestampMillis = now,
                 isEncrypted = true,
                 isDelivered = bobOnline.value,
                 isRead = false
@@ -713,7 +715,8 @@ class PhantomViewModel(
             activePipelineStep.value = 4
             delay(200)
 
-            val timestamp = SimpleDateFormat("h:mm a", Locale.getDefault()).format(Date())
+            val now = System.currentTimeMillis()
+            val timestamp = SimpleDateFormat("h:mm a", Locale.getDefault()).format(Date(now))
             val finalMsg = ChatMessage(
                 id = "msg_" + Random.nextInt(10000, 99999),
                 sender = senderName,
@@ -721,6 +724,7 @@ class PhantomViewModel(
                 ciphertext = ciphertextHex,
                 mac = macCode,
                 timestamp = timestamp,
+                timestampMillis = now,
                 isEncrypted = true,
                 isDelivered = bobOnline.value,
                 isRead = false
@@ -992,8 +996,8 @@ class PhantomViewModel(
             val ciphertextHex = CryptoUtils.encrypt(text, sharedKey)
             val hmacBytes = hmacSha256(ciphertextHex, sharedKey.encoded).take(16)
             val macCode = "hmac_sha256_$hmacBytes"
-            val timestamp = SimpleDateFormat("h:mm a", Locale.getDefault()).format(Date())
-
+            val now = System.currentTimeMillis()
+            val timestamp = SimpleDateFormat("h:mm a", Locale.getDefault()).format(Date(now))
             val finalMsg = ChatMessage(
                 id = "incoming_" + Random.nextInt(10000, 99999),
                 sender = senderName,
@@ -1001,6 +1005,7 @@ class PhantomViewModel(
                 ciphertext = ciphertextHex,
                 mac = macCode,
                 timestamp = timestamp,
+                timestampMillis = now,
                 isEncrypted = true,
                 isDelivered = true,
                 isRead = (selectedChatUser.value?.name == senderName)

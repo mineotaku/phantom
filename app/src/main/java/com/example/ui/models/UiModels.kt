@@ -10,6 +10,7 @@ data class ChatMessage(
     val ciphertext: String,
     val mac: String,
     val timestamp: String,
+    val timestampMillis: Long,
     val isEncrypted: Boolean,
     val isDelivered: Boolean,
     val isRead: Boolean
