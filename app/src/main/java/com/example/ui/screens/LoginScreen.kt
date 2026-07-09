@@ -64,26 +64,14 @@ fun LoginScreen(viewModel: PhantomViewModel) {
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.Center
         ) {
-            Image(
-                painter = painterResource(id = com.example.R.drawable.logo),
-                contentDescription = "Phantom Logo",
-                modifier = Modifier
-                    .size(115.dp)
-                    .clip(CircleShape)
-                    .border(2.dp, PhantomSecondary, CircleShape)
-            )
-            
-            Spacer(modifier = Modifier.height(16.dp))
-
+            // Header Logo
             Text(
                 text = "PHANTOM",
-                style = MaterialTheme.typography.headlineLarge,
+                style = MaterialTheme.typography.displayLarge,
                 fontWeight = FontWeight.ExtraBold,
                 color = PhantomSecondary,
                 letterSpacing = 4.sp
             )
-            
-            Spacer(modifier = Modifier.height(6.dp))
             
             Text(
                 text = "Privacy-First Secure E2EE Messenger",
@@ -93,7 +81,7 @@ fun LoginScreen(viewModel: PhantomViewModel) {
                 textAlign = TextAlign.Center
             )
             
-            Spacer(modifier = Modifier.height(24.dp))
+            Spacer(modifier = Modifier.height(32.dp))
             
             if (loginSuccessSplash) {
                 Card(

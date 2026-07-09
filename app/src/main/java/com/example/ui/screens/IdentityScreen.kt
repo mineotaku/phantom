@@ -57,14 +57,20 @@ fun IdentityScreen(viewModel: PhantomViewModel) {
     ) {
         // Profile Avatar
         item {
-            Image(
-                painter = painterResource(id = com.example.R.drawable.logo),
-                contentDescription = "Profile Photo",
+            Box(
                 modifier = Modifier
-                    .size(130.dp)
-                    .clip(CircleShape)
-                    .border(3.dp, PhantomSecondary, CircleShape)
-            )
+                    .size(120.dp)
+                    .background(PhantomSecondary.copy(alpha = 0.1f), shape = CircleShape)
+                    .border(2.dp, PhantomSecondary, CircleShape),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = Icons.Default.AccountCircle,
+                    contentDescription = "Profile Avatar",
+                    tint = PhantomSecondary,
+                    modifier = Modifier.size(96.dp)
+                )
+            }
         }
 
         // Profile Details Header
