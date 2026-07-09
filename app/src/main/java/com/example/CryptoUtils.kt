@@ -3,9 +3,17 @@ package com.example
 import android.security.keystore.KeyGenParameterSpec
 import android.security.keystore.KeyProperties
 import android.util.Base64
+import java.security.KeyFactory
+import java.security.KeyPair
+import java.security.KeyPairGenerator
 import java.security.KeyStore
 import java.security.MessageDigest
+import java.security.PrivateKey
+import java.security.PublicKey
+import java.security.spec.PKCS8EncodedKeySpec
+import java.security.spec.X509EncodedKeySpec
 import javax.crypto.Cipher
+import javax.crypto.KeyAgreement
 import javax.crypto.KeyGenerator
 import javax.crypto.SecretKey
 import javax.crypto.spec.GCMParameterSpec
@@ -33,7 +41,51 @@ object CryptoUtils {
         return keyGenerator.generateKey()
     }
 
-    // Derive a shared symmetric key dynamically for two users based on sorted identities
+    // Generate EC KeyPair (P-256) for secure ECDH key exchanges
+    fun generateECKeyPair(): KeyPair {
+        val keyPairGenerator = KeyPairGenerator.getInstance("EC")
+        keyPairGenerator.initialize(256)
+        return keyPairGenerator.generateKeyPair()
+    }
+
+    // Serialization: Convert PublicKey to Base64 String
+    fun publicKeyToBase64(publicKey: PublicKey): String {
+        return Base64.encodeToString(publicKey.encoded, Base64.NO_WRAP)
+    }
+
+    // Serialization: Convert PrivateKey to Base64 String
+    fun privateKeyToBase64(privateKey: PrivateKey): String {
+        return Base64.encodeToString(privateKey.encoded, Base64.NO_WRAP)
+    }
+
+    // Deserialization: Parse Base64 String to PublicKey
+    fun base64ToPublicKey(base64Str: String): PublicKey {
+        val keyBytes = Base64.decode(base64Str, Base64.DEFAULT)
+        val spec = X509EncodedKeySpec(keyBytes)
+        val keyFactory = KeyFactory.getInstance("EC")
+        return keyFactory.generatePublic(spec)
+    }
+
+    // Deserialization: Parse Base64 String to PrivateKey
+    fun base64ToPrivateKey(base64Str: String): PrivateKey {
+        val keyBytes = Base64.decode(base64Str, Base64.DEFAULT)
+        val spec = PKCS8EncodedKeySpec(keyBytes)
+        val keyFactory = KeyFactory.getInstance("EC")
+        return keyFactory.generatePrivate(spec)
+    }
+
+    // Compute ECDH Shared Key (P-256) and hash using SHA-256 to produce a 256-bit symmetric SecretKey
+    fun calculateECDHSharedKey(privateKey: PrivateKey, publicKey: PublicKey): SecretKey {
+        val keyAgreement = KeyAgreement.getInstance("ECDH")
+        keyAgreement.init(privateKey)
+        keyAgreement.doPhase(publicKey, true)
+        val sharedSecret = keyAgreement.generateSecret()
+        val sha256 = MessageDigest.getInstance("SHA-256")
+        val keyBytes = sha256.digest(sharedSecret)
+        return SecretKeySpec(keyBytes, "AES")
+    }
+
+    // Derive a shared symmetric key dynamically for two users based on sorted identities (Fallback for mock users)
     fun getSharedKey(user1: String, user2: String): SecretKey {
         val sortedString = listOf(user1, user2).sorted().joinToString("_")
         val sha256 = MessageDigest.getInstance("SHA-256")

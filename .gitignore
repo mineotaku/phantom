@@ -16,3 +16,6 @@
 local.properties
 .env
 debug.keystore
+server/.venv/
+server/phantom.db
+server/__pycache__/

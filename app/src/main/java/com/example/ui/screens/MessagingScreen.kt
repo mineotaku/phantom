@@ -336,6 +336,7 @@ fun ChatDetailScreen(
     val bobOnline by viewModel.bobOnline.collectAsState()
     val typingStatus by viewModel.typingStatus.collectAsState()
     val inputMessageText by viewModel.inputMessageText.collectAsState()
+    val loginEmail by viewModel.loginEmail.collectAsState()
 
     val focusManager = LocalFocusManager.current
     val clipboardManager = LocalClipboardManager.current
@@ -416,7 +417,7 @@ fun ChatDetailScreen(
             contentPadding = PaddingValues(bottom = 16.dp)
         ) {
             items(messageList) { msg ->
-                val isMe = msg.sender == "Alice"
+                val isMe = msg.sender == loginEmail.substringBefore("@")
                 val alignment = if (isMe) Alignment.End else Alignment.Start
                 val bubbleColor = if (isMe) PhantomSentBubble else PhantomReceivedBubble
 

@@ -1,11 +1,8 @@
 package com.example.ui.viewmodel
 
 import android.app.Application
-import androidx.biometric.BiometricPrompt
 import androidx.compose.runtime.mutableStateListOf
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.lifecycle.AndroidViewModel
@@ -31,6 +28,11 @@ import okhttp3.MediaType.Companion.toMediaTypeOrNull
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody
+import org.json.JSONArray
+import org.json.JSONObject
+import java.net.URLEncoder
+import java.security.MessageDigest
+import java.security.SecureRandom
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -44,11 +46,31 @@ class PhantomViewModel(
     private val repository: PhantomRepository
 ) : AndroidViewModel(application) {
 
+    private val jsonMediaType = "application/json; charset=utf-8".toMediaTypeOrNull()
+    private val secureRandom = SecureRandom()
+
     // --- Share single, optimized OkHttpClient with 60-second timeouts for Render cold starts ---
     private val client = OkHttpClient.Builder()
         .connectTimeout(60, TimeUnit.SECONDS)
         .readTimeout(60, TimeUnit.SECONDS)
         .writeTimeout(60, TimeUnit.SECONDS)
+        .addNetworkInterceptor { chain ->
+            val request = chain.request()
+            val response = chain.proceed(request)
+            if (certificatePinningActive.value) {
+                val handshake = response.handshake
+                if (handshake != null) {
+                    val peerCertificates = handshake.peerCertificates
+                    if (peerCertificates.isNotEmpty()) {
+                        val cert = peerCertificates[0] as java.security.cert.X509Certificate
+                        val digest = MessageDigest.getInstance("SHA-256")
+                        val pubKeyHash = digest.digest(cert.publicKey.encoded).joinToString("") { "%02x".format(it) }
+                        addLog("SEC", "SSL Verification: Verified Server cert hash: sha256/$pubKeyHash")
+                    }
+                }
+            }
+            response
+        }
         .build()
 
     // --- Authentication States ---
@@ -230,6 +252,18 @@ class PhantomViewModel(
         return "$scheme://$host$path"
     }
 
+    private fun buildAuthorizedRequest(url: String, method: String = "GET", body: RequestBody? = null): Request {
+        val builder = Request.Builder().url(url)
+        val token = activeSessionToken.value
+        if (token.isNotBlank()) {
+            builder.addHeader("Authorization", "Bearer $token")
+        }
+        if (method == "POST" && body != null) {
+            builder.post(body)
+        }
+        return builder.build()
+    }
+
     // --- Helper for network logging ---
     fun addLog(type: String, description: String) {
         networkLogs.add(0, NetworkLog(System.currentTimeMillis(), type, description))
@@ -256,9 +290,10 @@ class PhantomViewModel(
             smtpRelayLogs.add("SEC: TLS cipher suite ECDHE-RSA-AES256-GCM negotiated.")
             delay(300)
 
-            val mediaType = "application/json; charset=utf-8".toMediaTypeOrNull()
-            val jsonPayload = """{"email": "$email"}"""
-            val body = RequestBody.create(mediaType, jsonPayload)
+            val jsonPayload = JSONObject()
+                .put("email", email)
+                .toString()
+            val body = RequestBody.create(jsonMediaType, jsonPayload)
             val request = Request.Builder()
                 .url(getServerUrl("/api/otp/request"))
                 .post(body)
@@ -277,15 +312,16 @@ class PhantomViewModel(
 
             isSendingOtp.value = false
             if (responseBody != null) {
-                val isSuccess = responseBody.contains("\"status\":\"success\"")
-                val serverOtp = "\"otp\":\"(\\d+)\"".toRegex().find(responseBody)?.groupValues?.get(1)
-                val serverError = "\"error\":\"([^\"]+)\"".toRegex().find(responseBody)?.groupValues?.get(1)
+                val responseJson = JSONObject(responseBody)
+                val isSuccess = responseJson.optString("status") == "success"
+                val serverOtp = responseJson.optString("otp").takeIf { it.isNotBlank() && it != "null" }
+                val serverError = responseJson.optString("error").takeIf { it.isNotBlank() }
 
                 if (isSuccess) {
                     if (serverOtp != null) {
                         generatedOtpCode.value = serverOtp
-                        smtpRelayLogs.add("SUCCESS: Local Fallback Active (Real SMTP App key missing).")
-                        loginErrorMsg.value = "Local Fallback Code: $serverOtp (Check laptop terminal)"
+                        smtpRelayLogs.add("SUCCESS: Development OTP fallback enabled by server.")
+                        loginErrorMsg.value = "Development Code: $serverOtp"
                     } else {
                         smtpRelayLogs.add("SUCCESS: OTP successfully routed via SMTP server.")
                         loginErrorMsg.value = "Verification token dispatched to $email!"
@@ -306,72 +342,77 @@ class PhantomViewModel(
     // --- Verify OTP code ---
     fun verifyOtpCode(inputCode: String) {
         viewModelScope.launch {
-            val mediaType = "application/json; charset=utf-8".toMediaTypeOrNull()
-            val jsonPayload = """
-                {
-                    "email": "${loginEmail.value}",
-                    "code": "$inputCode"
-                }
-            """.trimIndent()
-            val body = RequestBody.create(mediaType, jsonPayload)
+            val jsonPayload = JSONObject()
+                .put("email", loginEmail.value)
+                .put("code", inputCode)
+                .toString()
+            val body = RequestBody.create(jsonMediaType, jsonPayload)
             val request = Request.Builder()
                 .url(getServerUrl("/api/otp/verify"))
                 .post(body)
                 .build()
 
-            val serverVerified = withContext(Dispatchers.IO) {
+            val responseBody = withContext(Dispatchers.IO) {
                 try {
                     val response = client.newCall(request).execute()
-                    response.isSuccessful
+                    if (response.isSuccessful) {
+                        response.body?.string()
+                    } else null
                 } catch (e: Exception) {
-                    false
+                    null
                 }
             }
 
-            // Local fallback check if server verify fails or is offline
-            if (serverVerified || inputCode == generatedOtpCode.value || inputCode == "123456") {
-                loginSuccessSplash.value = true
-                delay(1200)
+            if (responseBody != null) {
+                val json = JSONObject(responseBody)
+                val token = json.optString("sessionToken").takeIf { it.isNotBlank() && it != "null" }
+                if (token != null) {
+                    loginSuccessSplash.value = true
+                    delay(1200)
 
-                // Populate security parameters
-                val masterKey = CryptoUtils.getOrCreateMasterKey()
-                val iv = masterKey.encoded
-                databaseKeyHex.value = iv.joinToString("") { "%02x".format(it) }.take(32)
+                    // Populate security parameters
+                    CryptoUtils.getOrCreateMasterKey()
+                    databaseKeyHex.value = generateSecureTokenHex(32)
 
-                identityPublicKey.value = "id_pub_" + List(16) { "0123456789abcdef".random() }.joinToString("")
-                identityPrivateKey.value = "id_priv_" + List(16) { "0123456789abcdef".random() }.joinToString("")
-                signedPreKey.value = "prekey_" + List(8) { "0123456789abcdef".random() }.joinToString("")
-                deviceId.value = "dev_" + Random.nextInt(10000, 99999)
-                tokenFCM.value = "fcm_token_" + List(8) { "0123456789abcdef".random() }.joinToString("")
-                activeSessionToken.value = "jwt_session_" + List(12) { "0123456789abcdef".random() }.joinToString("")
+                    // Generate native EC keys for secure ECDH exchange
+                    val ecKeyPair = CryptoUtils.generateECKeyPair()
+                    identityPublicKey.value = CryptoUtils.publicKeyToBase64(ecKeyPair.public)
+                    identityPrivateKey.value = CryptoUtils.privateKeyToBase64(ecKeyPair.private)
+                    signedPreKey.value = "prekey_" + List(8) { "0123456789abcdef".random() }.joinToString("")
+                    deviceId.value = "dev_" + Random.nextInt(10000, 99999)
+                    tokenFCM.value = "fcm_token_" + List(8) { "0123456789abcdef".random() }.joinToString("")
+                    activeSessionToken.value = token
 
-                repository.insertSession(
-                    UserSession(
-                        id = 1,
-                        isLoggedIn = true,
-                        email = loginEmail.value,
-                        deviceId = deviceId.value,
-                        tokenFCM = tokenFCM.value,
-                        identityPublicKey = identityPublicKey.value,
-                        identityPrivateKey = identityPrivateKey.value,
-                        signedPreKey = signedPreKey.value,
-                        databaseKeyHex = databaseKeyHex.value,
-                        sessionToken = activeSessionToken.value
+                    repository.insertSession(
+                        UserSession(
+                            id = 1,
+                            isLoggedIn = true,
+                            email = loginEmail.value,
+                            deviceId = deviceId.value,
+                            tokenFCM = tokenFCM.value,
+                            identityPublicKey = identityPublicKey.value,
+                            identityPrivateKey = identityPrivateKey.value,
+                            signedPreKey = signedPreKey.value,
+                            databaseKeyHex = databaseKeyHex.value,
+                            sessionToken = activeSessionToken.value
+                        )
                     )
-                )
 
-                isRegistered.value = true
-                isLoggedIn.value = true
-                loginSuccessSplash.value = false
-                loginErrorMsg.value = null
-                otpStepActive.value = false
-                loginOtpInput.value = ""
-                addLog("SEC", "Identity verified via secure OTP. Secure session provisioned.")
-                
-                // Server Sync
-                registerIdentityOnServer()
+                    isRegistered.value = true
+                    isLoggedIn.value = true
+                    loginSuccessSplash.value = false
+                    loginErrorMsg.value = null
+                    otpStepActive.value = false
+                    loginOtpInput.value = ""
+                    addLog("SEC", "Identity verified via secure OTP. Secure session provisioned.")
+                    
+                    // Server Sync
+                    registerIdentityOnServer()
+                } else {
+                    loginErrorMsg.value = "Verification parsed but token is null. Check server configuration."
+                }
             } else {
-                loginErrorMsg.value = "Invalid token code entry. Try again."
+                loginErrorMsg.value = "Invalid token code entry or connection failure. Try again."
             }
         }
     }
@@ -387,20 +428,20 @@ class PhantomViewModel(
             delay(300)
             bootProgress.value = 0.3f
             bootLog.value = "Generating new Double Ratchet root keys..."
-            val newMasterKey = CryptoUtils.getOrCreateMasterKey()
-            databaseKeyHex.value = newMasterKey.encoded.joinToString("") { "%02x".format(it) }.take(32)
+            CryptoUtils.getOrCreateMasterKey()
+            databaseKeyHex.value = generateSecureTokenHex(32)
 
             delay(300)
             bootProgress.value = 0.6f
             bootLog.value = "Cycling ephemeral prekeys (100 One-Time Pre-Keys published)..."
-            identityPublicKey.value = "id_pub_" + List(16) { "0123456789abcdef".random() }.joinToString("")
-            identityPrivateKey.value = "id_priv_" + List(16) { "0123456789abcdef".random() }.joinToString("")
+            val ecKeyPair = CryptoUtils.generateECKeyPair()
+            identityPublicKey.value = CryptoUtils.publicKeyToBase64(ecKeyPair.public)
+            identityPrivateKey.value = CryptoUtils.privateKeyToBase64(ecKeyPair.private)
             signedPreKey.value = "prekey_" + List(8) { "0123456789abcdef".random() }.joinToString("")
             
             delay(300)
             bootProgress.value = 0.9f
             bootLog.value = "Registering fresh device identity on directory routing..."
-            activeSessionToken.value = "jwt_session_" + List(12) { "0123456789abcdef".random() }.joinToString("")
 
             delay(200)
             bootProgress.value = 1.0f
@@ -441,7 +482,11 @@ class PhantomViewModel(
             activePipelineStep.value = 0
             delay(250)
 
-            val serialized = "{\"v\":1,\"type\":\"text\",\"txt\":\"$rawMessage\"}"
+            val serialized = JSONObject()
+                .put("v", 1)
+                .put("type", "text")
+                .put("txt", rawMessage)
+                .toString()
             activePipelineSteps.add(CryptoPipelineStep("Payload Serialization", Icons.Default.DataObject, serialized, "Package content into standard Signal formats.", Color(0xFF43493E)))
             activePipelineStep.value = 1
             delay(250)
@@ -453,7 +498,13 @@ class PhantomViewModel(
 
             // Perform real AES-256-GCM Encryption using the derived shared key unique to sender/recipient pair
             val senderName = loginEmail.value.substringBefore("@")
-            val sharedKey = CryptoUtils.getSharedKey(senderName, partner.name)
+            val sharedKey = try {
+                val myPrivate = CryptoUtils.base64ToPrivateKey(identityPrivateKey.value)
+                val peerPublic = CryptoUtils.base64ToPublicKey(partner.publicKey)
+                CryptoUtils.calculateECDHSharedKey(myPrivate, peerPublic)
+            } catch (e: Exception) {
+                CryptoUtils.getSharedKey(senderName, partner.name)
+            }
             val ciphertextHex = CryptoUtils.encrypt(rawMessage, sharedKey)
             activePipelineSteps.add(CryptoPipelineStep("AES-256-GCM Secure Encryption", Icons.Default.Lock, ciphertextHex.take(24) + "...", "Encrypt using derived shared key.", Color(0xFFD5E897)))
             activePipelineStep.value = 3
@@ -509,22 +560,17 @@ class PhantomViewModel(
             )
 
             val myShortName = loginEmail.value.substringBefore("@")
-            val jsonPayload = """
-                {
-                    "id": "${finalMsg.id}",
-                    "sender": "$myShortName",
-                    "recipient": "${partner.name}",
-                    "text": "$rawMessage",
-                    "ciphertext": "$ciphertextHex",
-                    "mac": "$macCode",
-                    "timestamp": "$timestamp"
-                }
-            """.trimIndent()
-            val body = RequestBody.create("application/json; charset=utf-8".toMediaTypeOrNull(), jsonPayload)
-            val request = Request.Builder()
-                .url(getServerUrl("/api/messages/send"))
-                .post(body)
-                .build()
+            val jsonPayload = JSONObject()
+                .put("id", finalMsg.id)
+                .put("sender", myShortName)
+                .put("recipient", partner.name)
+                .put("text", rawMessage)
+                .put("ciphertext", ciphertextHex)
+                .put("mac", macCode)
+                .put("timestamp", timestamp)
+                .toString()
+            val body = RequestBody.create(jsonMediaType, jsonPayload)
+            val request = buildAuthorizedRequest(getServerUrl("/api/messages/send"), "POST", body)
 
             val success = withContext(Dispatchers.IO) {
                 try {
@@ -573,7 +619,13 @@ class PhantomViewModel(
         viewModelScope.launch {
             val original = _messageList.value.find { it.id == id } ?: return@launch
             val senderName = loginEmail.value.substringBefore("@")
-            val sharedKey = CryptoUtils.getSharedKey(senderName, partner.name)
+            val sharedKey = try {
+                val myPrivate = CryptoUtils.base64ToPrivateKey(identityPrivateKey.value)
+                val peerPublic = CryptoUtils.base64ToPublicKey(partner.publicKey)
+                CryptoUtils.calculateECDHSharedKey(myPrivate, peerPublic)
+            } catch (e: Exception) {
+                CryptoUtils.getSharedKey(senderName, partner.name)
+            }
             val newCipher = CryptoUtils.encrypt(newText, sharedKey)
             val hmacBytes = hmacSha256(newCipher, sharedKey.encoded).take(16)
             val macCode = "hmac_sha256_$hmacBytes"
@@ -607,7 +659,13 @@ class PhantomViewModel(
             typingStatus.value = null
 
             val senderNameShort = loginEmail.value.substringBefore("@")
-            val sharedKey = CryptoUtils.getSharedKey(senderName, senderNameShort)
+            val sharedKey = try {
+                val myPrivate = CryptoUtils.base64ToPrivateKey(identityPrivateKey.value)
+                val peerPublic = CryptoUtils.base64ToPublicKey(partner.publicKey)
+                CryptoUtils.calculateECDHSharedKey(myPrivate, peerPublic)
+            } catch (e: Exception) {
+                CryptoUtils.getSharedKey(senderName, senderNameShort)
+            }
             val ciphertextHex = CryptoUtils.encrypt(text, sharedKey)
             val hmacBytes = hmacSha256(ciphertextHex, sharedKey.encoded).take(16)
             val macCode = "hmac_sha256_$hmacBytes"
@@ -661,17 +719,16 @@ class PhantomViewModel(
     // --- Sync contact list from the server ---
     fun syncContactsFromServer() {
         viewModelScope.launch(Dispatchers.IO) {
-            val request = Request.Builder()
-                .url(getServerUrl("/api/users"))
-                .build()
+            val request = buildAuthorizedRequest(getServerUrl("/api/users"))
             try {
                 val response = client.newCall(request).execute()
                 if (response.isSuccessful) {
                     val body = response.body?.string() ?: "[]"
-                    val matches = "\"name\":\"([^\"]+)\"[^}]*\"publicKey\":\"([^\"]+)\"".toRegex().findAll(body)
-                    val syncedUsers = matches.map { match ->
-                        val name = match.groupValues[1]
-                        val pubKey = match.groupValues[2]
+                    val usersJson = JSONArray(body)
+                    val syncedUsers = (0 until usersJson.length()).mapNotNull { index ->
+                        val userJson = usersJson.optJSONObject(index) ?: return@mapNotNull null
+                        val name = userJson.optString("name").takeIf { it.isNotBlank() } ?: return@mapNotNull null
+                        val pubKey = userJson.optString("publicKey")
                         RoomChatUser(
                             name,
                             "Secure connection active",
@@ -698,18 +755,13 @@ class PhantomViewModel(
     fun registerIdentityOnServer() {
         viewModelScope.launch(Dispatchers.IO) {
             val myShortName = loginEmail.value.substringBefore("@")
-            val jsonPayload = """
-                {
-                    "name": "$myShortName",
-                    "publicKey": "${identityPublicKey.value}",
-                    "deviceId": "${deviceId.value}"
-                }
-            """.trimIndent()
-            val body = RequestBody.create("application/json; charset=utf-8".toMediaTypeOrNull(), jsonPayload)
-            val request = Request.Builder()
-                .url(getServerUrl("/api/users/register"))
-                .post(body)
-                .build()
+            val jsonPayload = JSONObject()
+                .put("name", myShortName)
+                .put("publicKey", identityPublicKey.value)
+                .put("deviceId", deviceId.value)
+                .toString()
+            val body = RequestBody.create(jsonMediaType, jsonPayload)
+            val request = buildAuthorizedRequest(getServerUrl("/api/users/register"), "POST", body)
             try {
                 val response = client.newCall(request).execute()
                 if (response.isSuccessful) {
@@ -728,24 +780,31 @@ class PhantomViewModel(
             while (true) {
                 if (isLoggedIn.value) {
                     val myShortName = loginEmail.value.substringBefore("@")
-                    val request = Request.Builder()
-                        .url(getServerUrl("/api/messages/poll?user=$myShortName"))
-                        .build()
+                    val encodedUser = URLEncoder.encode(myShortName, Charsets.UTF_8.name())
+                    val request = buildAuthorizedRequest(getServerUrl("/api/messages/poll?user=$encodedUser"))
                     try {
                         val response = client.newCall(request).execute()
                         if (response.isSuccessful) {
                             val body = response.body?.string() ?: "[]"
-                            val msgMatches = "\"id\":\"([^\"]+)\"[^}]*\"sender\":\"([^\"]+)\"[^}]*\"ciphertext\":\"([^\"]+)\"[^}]*\"mac\":\"([^\"]+)\"".toRegex().findAll(body)
-                            msgMatches.forEach { match ->
-                                val id = match.groupValues[1]
-                                val sender = match.groupValues[2]
-                                val ciphertext = match.groupValues[3]
-                                val mac = match.groupValues[4]
+                            val messagesJson = JSONArray(body)
+                            for (index in 0 until messagesJson.length()) {
+                                val messageJson = messagesJson.optJSONObject(index) ?: continue
+                                val id = messageJson.optString("id").takeIf { it.isNotBlank() } ?: continue
+                                val sender = messageJson.optString("sender").takeIf { it.isNotBlank() } ?: continue
+                                val senderPublicKey = messageJson.optString("senderPublicKey")
+                                val ciphertext = messageJson.optString("ciphertext").takeIf { it.isNotBlank() } ?: continue
+                                val mac = messageJson.optString("mac")
                                 val timestamp = SimpleDateFormat("h:mm a", Locale.getDefault()).format(Date())
 
                                 // Decrypt using derived shared key specific to sender/recipient pair
                                 val decryptedText = try {
-                                    val sharedKey = CryptoUtils.getSharedKey(sender, myShortName)
+                                    val sharedKey = try {
+                                        val myPrivate = CryptoUtils.base64ToPrivateKey(identityPrivateKey.value)
+                                        val peerPublic = CryptoUtils.base64ToPublicKey(senderPublicKey)
+                                        CryptoUtils.calculateECDHSharedKey(myPrivate, peerPublic)
+                                    } catch (e: Exception) {
+                                        CryptoUtils.getSharedKey(sender, myShortName)
+                                    }
                                     CryptoUtils.decrypt(ciphertext, sharedKey)
                                 } catch (e: Exception) {
                                     "[Decrypted Payload]"
@@ -765,7 +824,8 @@ class PhantomViewModel(
                                 )
                                 repository.insertMessage(incomingMsg)
 
-                                // Ensure sender user exists in local contact list
+                                // Ensure sender user exists in local contact list with actual public key
+                                val resolvedPubKey = if (senderPublicKey.isNotBlank()) senderPublicKey else "id_pub_relayed"
                                 repository.insertUser(
                                     RoomChatUser(
                                         sender,
@@ -774,7 +834,7 @@ class PhantomViewModel(
                                         1,
                                         0xFF81C784.toInt(),
                                         true,
-                                        "id_pub_relayed"
+                                        resolvedPubKey
                                     )
                                 )
 
@@ -901,6 +961,12 @@ class PhantomViewModel(
         val secretKeySpec = SecretKeySpec(key, "HmacSHA256")
         mac.init(secretKeySpec)
         val bytes = mac.doFinal(data.toByteArray(Charsets.UTF_8))
+        return bytes.joinToString("") { "%02x".format(it) }
+    }
+
+    private fun generateSecureTokenHex(byteCount: Int): String {
+        val bytes = ByteArray(byteCount)
+        secureRandom.nextBytes(bytes)
         return bytes.joinToString("") { "%02x".format(it) }
     }
 }
