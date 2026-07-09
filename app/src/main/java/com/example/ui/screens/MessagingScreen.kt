@@ -27,6 +27,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.AnnotatedString
@@ -129,10 +130,36 @@ fun ChatListScreen(
                     expanded = showProfileMenu,
                     onDismissRequest = { showProfileMenu = false }
                 ) {
+                    val userId = loginEmail.substringBefore("@")
+                    val context = LocalContext.current
+
                     DropdownMenuItem(
                         text = { Text("Session: $loginEmail") },
                         onClick = {},
                         enabled = false
+                    )
+                    DropdownMenuItem(
+                        text = { Text("User ID: @$userId") },
+                        leadingIcon = { Icon(Icons.Default.AlternateEmail, contentDescription = null, tint = PhantomSecondary) },
+                        onClick = {},
+                        enabled = false
+                    )
+                    DropdownMenuItem(
+                        text = { Text("Share Profile Link") },
+                        leadingIcon = { Icon(Icons.Default.Share, contentDescription = null, tint = PhantomSecondary) },
+                        onClick = {
+                            showProfileMenu = false
+                            val shareIntent = android.content.Intent().apply {
+                                action = android.content.Intent.ACTION_SEND
+                                type = "text/plain"
+                                putExtra(
+                                    android.content.Intent.EXTRA_TEXT,
+                                    "Connect with me on Phantom (Secure E2EE Messenger)! My User ID is: @$userId. Share Link: https://phantom-pu9t.onrender.com/invite/$userId"
+                                )
+                            }
+                            val chooser = android.content.Intent.createChooser(shareIntent, "Share Profile Link")
+                            context.startActivity(chooser)
+                        }
                     )
                     HorizontalDivider(color = PhantomBorder)
                     DropdownMenuItem(

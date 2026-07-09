@@ -81,6 +81,9 @@ interface PhantomDao {
     @Query("SELECT * FROM user_session WHERE id = 1 LIMIT 1")
     suspend fun getSession(): UserSession?
 
+    @Query("DELETE FROM chat_users WHERE publicKey LIKE 'id_pub_%'")
+    suspend fun deleteMockUsers()
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertSession(session: UserSession)
 

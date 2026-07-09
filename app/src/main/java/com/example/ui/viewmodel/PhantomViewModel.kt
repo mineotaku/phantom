@@ -148,6 +148,7 @@ class PhantomViewModel(
     init {
         // Load Session on Startup
         viewModelScope.launch {
+            repository.deleteMockUsers()
             val session = repository.getSession()
             if (session != null && session.isLoggedIn) {
                 isLoggedIn.value = true

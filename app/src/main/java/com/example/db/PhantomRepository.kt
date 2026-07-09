@@ -41,6 +41,10 @@ class PhantomRepository(private val dao: PhantomDao) {
         dao.getSession()
     }
 
+    suspend fun deleteMockUsers() = withContext(Dispatchers.IO) {
+        dao.deleteMockUsers()
+    }
+
     suspend fun insertSession(session: UserSession) = withContext(Dispatchers.IO) {
         dao.insertSession(session)
     }
