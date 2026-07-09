@@ -788,32 +788,33 @@ class PhantomViewModel(
 
     private fun compressImageUri(context: android.content.Context, uri: android.net.Uri): ByteArray? {
         return try {
-            context.contentResolver.openInputStream(uri)?.use { inputStream ->
-                val bytesTemp = inputStream.readBytes()
-                val options = android.graphics.BitmapFactory.Options().apply {
-                    inJustDecodeBounds = true
-                }
-                android.graphics.BitmapFactory.decodeByteArray(bytesTemp, 0, bytesTemp.size, options)
-                
-                val maxDim = 1200
-                var scale = 1
-                if (options.outWidth > maxDim || options.outHeight > maxDim) {
-                    val widthScale = Math.round(options.outWidth.toFloat() / maxDim.toFloat())
-                    val heightScale = Math.round(options.outHeight.toFloat() / maxDim.toFloat())
-                    scale = Math.max(widthScale, heightScale)
-                }
-                
-                val decodeOptions = android.graphics.BitmapFactory.Options().apply {
-                    inSampleSize = scale
-                }
-                val bitmap = android.graphics.BitmapFactory.decodeByteArray(bytesTemp, 0, bytesTemp.size, decodeOptions) ?: return null
-                
-                val outputStream = java.io.ByteArrayOutputStream()
-                bitmap.compress(android.graphics.Bitmap.CompressFormat.JPEG, 75, outputStream)
-                val compressedBytes = outputStream.toByteArray()
-                bitmap.recycle()
-                compressedBytes
+            val options = android.graphics.BitmapFactory.Options().apply {
+                inJustDecodeBounds = true
             }
+            context.contentResolver.openInputStream(uri)?.use { inputStream ->
+                android.graphics.BitmapFactory.decodeStream(inputStream, null, options)
+            }
+            
+            val maxDim = 1200
+            var scale = 1
+            if (options.outWidth > maxDim || options.outHeight > maxDim) {
+                val widthScale = Math.round(options.outWidth.toFloat() / maxDim.toFloat())
+                val heightScale = Math.round(options.outHeight.toFloat() / maxDim.toFloat())
+                scale = Math.max(widthScale, heightScale)
+            }
+            
+            val decodeOptions = android.graphics.BitmapFactory.Options().apply {
+                inSampleSize = scale
+            }
+            val bitmap = context.contentResolver.openInputStream(uri)?.use { inputStream ->
+                android.graphics.BitmapFactory.decodeStream(inputStream, null, decodeOptions)
+            } ?: return null
+            
+            val outputStream = java.io.ByteArrayOutputStream()
+            bitmap.compress(android.graphics.Bitmap.CompressFormat.JPEG, 75, outputStream)
+            val compressedBytes = outputStream.toByteArray()
+            bitmap.recycle()
+            compressedBytes
         } catch (e: Throwable) {
             null
         }
