@@ -1006,6 +1006,10 @@ class PhantomViewModel(
                 android.app.NotificationManager.IMPORTANCE_HIGH
             ).apply {
                 description = "Incoming end-to-end encrypted transmissions"
+                enableLights(true)
+                lightColor = android.graphics.Color.GREEN
+                enableVibration(true)
+                vibrationPattern = longArrayOf(100, 200, 300, 400, 500)
             }
             notificationManager.createNotificationChannel(channel)
         }
@@ -1037,6 +1041,7 @@ class PhantomViewModel(
             .setContentTitle(sender)
             .setContentText(displayBody)
             .setPriority(androidx.core.app.NotificationCompat.PRIORITY_HIGH)
+            .setDefaults(androidx.core.app.NotificationCompat.DEFAULT_ALL)
             .setAutoCancel(true)
             .setContentIntent(pendingIntent)
             .build()
