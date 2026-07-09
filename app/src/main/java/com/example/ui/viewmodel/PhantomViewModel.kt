@@ -716,6 +716,16 @@ class PhantomViewModel(
         }
     }
 
+    private fun handleSessionExpired() {
+        viewModelScope.launch {
+            repository.clearSession()
+            isLoggedIn.value = false
+            isRegistered.value = false
+            activeSessionToken.value = ""
+            addLog("SEC", "Session expired or database wiped on server. Forced re-login required.")
+        }
+    }
+
     // --- Sync contact list from the server ---
     fun syncContactsFromServer() {
         viewModelScope.launch(Dispatchers.IO) {
@@ -744,6 +754,8 @@ class PhantomViewModel(
                     if (otherUsers.isNotEmpty()) {
                         repository.insertUsers(otherUsers)
                     }
+                } else if (response.code == 401) {
+                    handleSessionExpired()
                 }
             } catch (e: Exception) {
                 // Keep Room database values if offline
@@ -767,6 +779,8 @@ class PhantomViewModel(
                 if (response.isSuccessful) {
                     addLog("SYS", "Identity successfully registered on directory server.")
                     syncContactsFromServer()
+                } else if (response.code == 401) {
+                    handleSessionExpired()
                 }
             } catch (e: Exception) {
                 addLog("WARNING", "Relay server is currently offline.")
@@ -840,6 +854,8 @@ class PhantomViewModel(
 
                                 addLog("IN", "Received and decrypted E2EE transmission from $sender.")
                             }
+                        } else if (response.code == 401) {
+                            handleSessionExpired()
                         }
                     } catch (e: Exception) {
                         // Skip network disconnects or polling delays
