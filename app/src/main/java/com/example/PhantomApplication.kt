@@ -15,6 +15,11 @@ class PhantomApplication : Application() {
         super.onCreate()
         instance = this
 
+        // Load persisted server host configuration
+        val prefs = getSharedPreferences("phantom_security", android.content.Context.MODE_PRIVATE)
+        val savedHost = prefs.getString("server_host", "phantom-pu9t.onrender.com") ?: "phantom-pu9t.onrender.com"
+        com.example.network.NetworkConfig.serverHost.value = savedHost
+
         // Load SQLCipher native libraries
         try {
             System.loadLibrary("sqlcipher")

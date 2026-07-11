@@ -21,6 +21,9 @@ object NetworkConfig {
 
     private fun buildClient(usePinning: Boolean): OkHttpClient {
         val builder = OkHttpClient.Builder()
+            .connectTimeout(60, java.util.concurrent.TimeUnit.SECONDS)
+            .readTimeout(60, java.util.concurrent.TimeUnit.SECONDS)
+            .writeTimeout(60, java.util.concurrent.TimeUnit.SECONDS)
         if (com.example.network.OnionRouter.isEnabled.value && com.example.network.OnionRouter.isConnected.value) {
             val proxy = java.net.Proxy(java.net.Proxy.Type.SOCKS, java.net.InetSocketAddress("127.0.0.1", 9050))
             builder.proxy(proxy)
@@ -36,7 +39,7 @@ object NetworkConfig {
                 .build()
             builder.certificatePinner(certPinner)
         }
-        builder.connectionSpecs(listOf(ConnectionSpec.RESTRICTED_TLS, ConnectionSpec.MODERN_TLS))
+        builder.connectionSpecs(listOf(ConnectionSpec.RESTRICTED_TLS, ConnectionSpec.MODERN_TLS, ConnectionSpec.CLEARTEXT))
         return builder.build()
     }
 

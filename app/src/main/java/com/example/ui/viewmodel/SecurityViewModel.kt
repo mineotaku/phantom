@@ -15,13 +15,21 @@ class SecurityViewModel(val repository: PhantomRepository) : ViewModel() {
 
     init {
         viewModelScope.launch {
-            runCatching {
-                val session = repository.getSession()
-                if (session != null) {
-                    loginEmail.value = session.email
+            com.example.ui.viewmodel.PhantomViewModel.isLoggedInGlobal.collect { loggedIn ->
+                if (loggedIn) {
+                    if (loginEmail.value.isBlank()) {
+                        runCatching {
+                            val session = repository.getSession()
+                            if (session != null) {
+                                loginEmail.value = session.email.trim().lowercase()
+                            }
+                        }.onFailure { e ->
+                            android.util.Log.e("SECURITY_VM_INIT", "Failed to load session from database", e)
+                        }
+                    }
+                } else {
+                    loginEmail.value = ""
                 }
-            }.onFailure { e ->
-                android.util.Log.e("SECURITY_VM_INIT", "Failed to load session from database", e)
             }
         }
     }

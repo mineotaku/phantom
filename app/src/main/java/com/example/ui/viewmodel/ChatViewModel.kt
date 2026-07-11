@@ -72,18 +72,31 @@ class ChatViewModel(application: Application, val repository: PhantomRepository)
 
     init {
         viewModelScope.launch {
-            runCatching {
-                val session = repository.getSession()
-                if (session != null) {
-                    identityPublicKey.value = session.identityPublicKey
-                    identityPrivateKey.value = com.example.CryptoUtils.decrypt(session.identityPrivateKey)
-                    deviceId.value = session.deviceId
-                    loginEmail.value = session.email
-                    activeSessionToken.value = session.sessionToken
-                    tokenFCM.value = session.tokenFCM
+            com.example.ui.viewmodel.PhantomViewModel.isLoggedInGlobal.collect { loggedIn ->
+                if (loggedIn) {
+                    if (loginEmail.value.isBlank()) {
+                        runCatching {
+                            val session = repository.getSession()
+                            if (session != null) {
+                                identityPublicKey.value = session.identityPublicKey
+                                identityPrivateKey.value = com.example.CryptoUtils.decrypt(session.identityPrivateKey)
+                                deviceId.value = session.deviceId
+                                loginEmail.value = session.email.trim().lowercase()
+                                activeSessionToken.value = session.sessionToken
+                                tokenFCM.value = session.tokenFCM
+                            }
+                        }.onFailure { e ->
+                            android.util.Log.e("CHAT_VM_INIT", "Failed to load session from database", e)
+                        }
+                    }
+                } else {
+                    identityPublicKey.value = ""
+                    identityPrivateKey.value = ""
+                    deviceId.value = ""
+                    loginEmail.value = ""
+                    activeSessionToken.value = ""
+                    tokenFCM.value = ""
                 }
-            }.onFailure { e ->
-                android.util.Log.e("CHAT_VM_INIT", "Failed to load session from database", e)
             }
         }
     }
@@ -398,28 +411,35 @@ class ChatViewModel(application: Application, val repository: PhantomRepository)
             }
 
             if (responseBody != null) {
-                val jsonArray = JSONArray(responseBody)
-                val users = mutableListOf<RoomChatUser>()
-                for (i in 0 until jsonArray.length()) {
-                    val obj = jsonArray.getJSONObject(i)
-                    val name = obj.getString("email").substringBefore("@")
-                    if (name == loginEmail.value.substringBefore("@")) continue
-                    val pubKey = obj.getString("publicKey")
-                    val existing = repository.getUserByName(name)
-                    users.add(
-                        RoomChatUser(
-                            name = name,
-                            lastMessage = existing?.lastMessage ?: "No messages yet",
-                            time = existing?.time ?: "12:00 PM",
-                            unreadCount = existing?.unreadCount ?: 0,
-                            avatarColorHex = existing?.avatarColorHex ?: 0xFF95A5A6.toInt(),
-                            isOnline = true,
-                            publicKey = pubKey
+                try {
+                    android.util.Log.d("PHANTOM_SYNC", "Raw directory response: $responseBody")
+                    addLog("SYS", "Raw synced response: $responseBody")
+                    val jsonArray = JSONArray(responseBody)
+                    val users = mutableListOf<RoomChatUser>()
+                    for (i in 0 until jsonArray.length()) {
+                        val obj = jsonArray.getJSONObject(i)
+                        val name = obj.getString("name")
+                        if (name == loginEmail.value.substringBefore("@")) continue
+                        val pubKey = obj.getString("publicKey")
+                        val existing = repository.getUserByName(name)
+                        users.add(
+                            RoomChatUser(
+                                name = name,
+                                lastMessage = existing?.lastMessage ?: "No messages yet",
+                                time = existing?.time ?: "12:00 PM",
+                                unreadCount = existing?.unreadCount ?: 0,
+                                avatarColorHex = existing?.avatarColorHex ?: 0xFF95A5A6.toInt(),
+                                isOnline = true,
+                                publicKey = pubKey
+                            )
                         )
-                    )
+                    }
+                    repository.insertUsers(users)
+                    addLog("SYS", "Successfully synced ${users.size} active contacts.")
+                } catch (e: Exception) {
+                    android.util.Log.e("CHAT_VM_SYNC", "Failed to parse users JSON", e)
+                    addLog("ERROR", "Directory synchronization parsing failed.")
                 }
-                repository.insertUsers(users)
-                addLog("SYS", "Successfully synced ${users.size} active contacts.")
             } else {
                 addLog("ERROR", "Directory synchronization failed.")
             }

@@ -153,9 +153,9 @@ class AuthViewModel(private val repository: PhantomRepository) : ViewModel() {
                     delay(800)
                     
                     val dbKeyHex = generateSecureTokenHex(32)
-                    val ecKeyPair = com.example.CryptoUtils.generateECKeyPair()
-                    val identityPublicKeyHex = com.example.CryptoUtils.publicKeyToBase64(ecKeyPair.public)
-                    val identityPrivateKeyHex = com.example.CryptoUtils.privateKeyToBase64(ecKeyPair.private)
+                    val identityKeyPair = com.example.crypto.X3DHProtocol.generateIdentityKeyPair()
+                    val identityPublicKeyHex = Base64.encodeToString(identityKeyPair.publicKey, Base64.NO_WRAP)
+                    val identityPrivateKeyHex = Base64.encodeToString(identityKeyPair.privateKey, Base64.NO_WRAP)
                     val signedPreKeyHex = "prekey_" + List(8) { "0123456789abcdef".random() }.joinToString("")
                     val deviceIdStr = "dev_" + kotlin.random.Random.nextInt(10000, 99999)
                     val tokenFCMStr = "fcm_token_" + List(8) { "0123456789abcdef".random() }.joinToString("")
@@ -164,7 +164,7 @@ class AuthViewModel(private val repository: PhantomRepository) : ViewModel() {
                         UserSession(
                             id = 1,
                             isLoggedIn = true,
-                            email = loginEmail.value,
+                            email = loginEmail.value.trim().lowercase(),
                             deviceId = deviceIdStr,
                             tokenFCM = tokenFCMStr,
                             identityPublicKey = identityPublicKeyHex,
@@ -175,7 +175,7 @@ class AuthViewModel(private val repository: PhantomRepository) : ViewModel() {
                         )
                     )
                     
-                    val privBytes = ecKeyPair.private.encoded
+                    val privBytes = identityKeyPair.privateKey
                     val preKeyStore = com.example.crypto.PreKeyStore(repository)
                     preKeyStore.generateAndStoreSignedPreKey(privBytes, 1)
                     preKeyStore.generateAndStoreOneTimePreKeys(1, 100)

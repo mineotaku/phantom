@@ -140,7 +140,11 @@ fun LoginScreen(viewModel: com.example.ui.viewmodel.AuthViewModel) {
 
                             SecureTextField(
                                 value = serverHost,
-                                onValueChange = { com.example.network.NetworkConfig.serverHost.value = it },
+                                onValueChange = {
+                                    com.example.network.NetworkConfig.serverHost.value = it
+                                    context.getSharedPreferences("phantom_security", android.content.Context.MODE_PRIVATE)
+                                        .edit().putString("server_host", it).apply()
+                                },
                                 label = "Relay Server Host",
                                 leadingIcon = { Icon(Icons.Default.Dns, contentDescription = null, tint = PhantomTertiary) },
                                 singleLine = true,
@@ -155,7 +159,7 @@ fun LoginScreen(viewModel: com.example.ui.viewmodel.AuthViewModel) {
                             
                             SecureTextField(
                                 value = loginEmail,
-                                onValueChange = { viewModel.loginEmail.value = it },
+                                onValueChange = { viewModel.loginEmail.value = it.trim().lowercase() },
                                 label = "Secure Email Address",
                                 leadingIcon = { Icon(Icons.Default.Email, contentDescription = null, tint = PhantomTertiary) },
                                 singleLine = true,

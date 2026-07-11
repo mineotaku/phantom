@@ -191,8 +191,49 @@ class PhantomViewModel(
         
         viewModelScope.launch {
             PhantomViewModel.isLoggedInGlobal.collect { loggedIn ->
-                if (loggedIn && !isLoggedIn.value) {
-                    // Update local state if needed
+                isLoggedIn.value = loggedIn
+                if (loggedIn) {
+                    if (loginEmail.value.isBlank()) {
+                        val session = repository.getSession()
+                        if (session != null) {
+                            isRegistered.value = true
+                            loginEmail.value = session.email.trim().lowercase()
+                            deviceId.value = session.deviceId
+                            tokenFCM.value = session.tokenFCM
+                            identityPublicKey.value = session.identityPublicKey
+                            identityPrivateKey.value = CryptoUtils.decrypt(session.identityPrivateKey)
+                            signedPreKey.value = session.signedPreKey
+                            databaseKeyHex.value = session.databaseKeyHex
+                            activeSessionToken.value = session.sessionToken
+                            
+                            // Server Sync
+                            registerIdentityOnServer()
+                            syncContactsFromServer()
+                            
+                            // Insert Bob for local sandbox testing
+                            repository.insertUser(
+                                RoomChatUser(
+                                    "Bob",
+                                    "Secure connection active",
+                                    "Now",
+                                    0,
+                                    0xFF81C784.toInt(),
+                                    true,
+                                    "id_pub_relayed"
+                                )
+                            )
+                        }
+                    }
+                } else {
+                    isRegistered.value = false
+                    loginEmail.value = ""
+                    deviceId.value = ""
+                    tokenFCM.value = ""
+                    identityPublicKey.value = ""
+                    identityPrivateKey.value = ""
+                    signedPreKey.value = ""
+                    databaseKeyHex.value = ""
+                    activeSessionToken.value = ""
                 }
             }
         }
@@ -208,7 +249,8 @@ class PhantomViewModel(
                 if (session != null && session.isLoggedIn) {
                     isLoggedInGlobal.value = true
                     isRegistered.value = true
-                    loginEmail.value = session.email
+                    isLoggedIn.value = true
+                    loginEmail.value = session.email.trim().lowercase()
                     deviceId.value = session.deviceId
                     tokenFCM.value = session.tokenFCM
                     identityPublicKey.value = session.identityPublicKey
@@ -221,6 +263,19 @@ class PhantomViewModel(
                     // Server Sync
                     registerIdentityOnServer()
                     syncContactsFromServer()
+                    
+                    // Insert Bob for local sandbox testing
+                    repository.insertUser(
+                        RoomChatUser(
+                            "Bob",
+                            "Secure connection active",
+                            "Now",
+                            0,
+                            0xFF81C784.toInt(),
+                            true,
+                            "id_pub_relayed"
+                        )
+                    )
                 } else {
                     addLog("SYS", "No active session. Initializing secure registration environment.")
                 }
@@ -314,13 +369,7 @@ class PhantomViewModel(
 
     // --- Helper to dynamically choose between secure HTTPS (Render) and local HTTP (emulator/LAN) ---
     private fun getServerUrl(path: String): String {
-        val host = serverHost.value.trim()
-        val scheme = if (host.contains("10.0.2.2") || host.contains("192.168") || host.contains("localhost") || host.contains("127.0.0.1") || host.contains(":")) {
-            "http"
-        } else {
-            "https"
-        }
-        return "$scheme://$host$path"
+        return com.example.network.NetworkConfig.getServerUrl(path)
     }
 
     private fun buildAuthorizedRequest(url: String, method: String = "GET", body: RequestBody? = null): Request {
@@ -458,13 +507,13 @@ class PhantomViewModel(
                     CryptoUtils.getOrCreateMasterKey()
                     databaseKeyHex.value = generateSecureTokenHex(32)
 
-                    // Generate native EC keys for secure ECDH exchange
-                    val ecKeyPair = CryptoUtils.generateECKeyPair()
-                    identityPublicKey.value = CryptoUtils.publicKeyToBase64(ecKeyPair.public)
-                    identityPrivateKey.value = CryptoUtils.privateKeyToBase64(ecKeyPair.private)
+                    // Generate hybrid EC/PQC keys for secure ECDH exchange
+                    val identityKeyPair = com.example.crypto.X3DHProtocol.generateIdentityKeyPair()
+                    identityPublicKey.value = Base64.encodeToString(identityKeyPair.publicKey, Base64.NO_WRAP)
+                    identityPrivateKey.value = Base64.encodeToString(identityKeyPair.privateKey, Base64.NO_WRAP)
                     
                     // Generate and store initial prekeys
-                    val privBytes = ecKeyPair.private.encoded
+                    val privBytes = identityKeyPair.privateKey
                     preKeyStore.generateAndStoreSignedPreKey(privBytes, 1)
                     preKeyStore.generateAndStoreOneTimePreKeys(1, 100)
                     
@@ -477,7 +526,7 @@ class PhantomViewModel(
                         UserSession(
                             id = 1,
                             isLoggedIn = true,
-                            email = loginEmail.value,
+                            email = loginEmail.value.trim().lowercase(),
                             deviceId = deviceId.value,
                             tokenFCM = tokenFCM.value,
                             identityPublicKey = identityPublicKey.value,
@@ -524,12 +573,12 @@ class PhantomViewModel(
             delay(300)
             bootProgress.value = 0.6f
             bootLog.value = "Cycling ephemeral prekeys (100 One-Time Pre-Keys published)..."
-            val ecKeyPair = CryptoUtils.generateECKeyPair()
-            identityPublicKey.value = CryptoUtils.publicKeyToBase64(ecKeyPair.public)
-            identityPrivateKey.value = CryptoUtils.privateKeyToBase64(ecKeyPair.private)
+            val identityKeyPair = com.example.crypto.X3DHProtocol.generateIdentityKeyPair()
+            identityPublicKey.value = Base64.encodeToString(identityKeyPair.publicKey, Base64.NO_WRAP)
+            identityPrivateKey.value = Base64.encodeToString(identityKeyPair.privateKey, Base64.NO_WRAP)
             
             // Generate and store rotated prekeys
-            val privBytes = ecKeyPair.private.encoded
+            val privBytes = identityKeyPair.privateKey
             preKeyStore.generateAndStoreSignedPreKey(privBytes, 2)
             preKeyStore.generateAndStoreOneTimePreKeys(101, 100)
             
@@ -1284,9 +1333,9 @@ class PhantomViewModel(
             isLoggedIn.value = false
             isRegistered.value = false
             activeSessionToken.value = ""
-            val identityKeyPair = CryptoUtils.generateECKeyPair()
-            identityPrivateKey.value = CryptoUtils.privateKeyToBase64(identityKeyPair.private)
-            identityPublicKey.value = CryptoUtils.publicKeyToBase64(identityKeyPair.public)
+            val identityKeyPair = com.example.crypto.X3DHProtocol.generateIdentityKeyPair()
+            identityPrivateKey.value = Base64.encodeToString(identityKeyPair.privateKey, Base64.NO_WRAP)
+            identityPublicKey.value = Base64.encodeToString(identityKeyPair.publicKey, Base64.NO_WRAP)
             addLog("SYS", "Local application container reset and new cryptographic ratchets generated.")
         }
     }
@@ -1320,6 +1369,8 @@ class PhantomViewModel(
                     }
                 }
                 
+                android.util.Log.d("PHANTOM_SYNC", "Raw directory response: $responseJson")
+                addLog("SYS", "Raw synced response: $responseJson")
                 val usersJson = JSONArray(responseJson)
                 val bloomFilterSize = 1024
                 val filterBitSet = java.util.BitSet(bloomFilterSize)

@@ -21,18 +21,31 @@ class IdentityViewModel(val repository: PhantomRepository) : ViewModel() {
 
     init {
         viewModelScope.launch {
-            runCatching {
-                val session = repository.getSession()
-                if (session != null) {
-                    identityPublicKey.value = session.identityPublicKey
-                    identityPrivateKey.value = com.example.CryptoUtils.decrypt(session.identityPrivateKey)
-                    signedPreKey.value = session.signedPreKey
-                    deviceId.value = session.deviceId
-                    loginEmail.value = session.email
-                    activeSessionToken.value = session.sessionToken
+            com.example.ui.viewmodel.PhantomViewModel.isLoggedInGlobal.collect { loggedIn ->
+                if (loggedIn) {
+                    if (loginEmail.value.isBlank()) {
+                        runCatching {
+                            val session = repository.getSession()
+                            if (session != null) {
+                                identityPublicKey.value = session.identityPublicKey
+                                identityPrivateKey.value = com.example.CryptoUtils.decrypt(session.identityPrivateKey)
+                                signedPreKey.value = session.signedPreKey
+                                deviceId.value = session.deviceId
+                                loginEmail.value = session.email.trim().lowercase()
+                                activeSessionToken.value = session.sessionToken
+                            }
+                        }.onFailure { e ->
+                            android.util.Log.e("IDENTITY_VM_INIT", "Failed to load session from database", e)
+                        }
+                    }
+                } else {
+                    identityPublicKey.value = ""
+                    identityPrivateKey.value = ""
+                    signedPreKey.value = ""
+                    deviceId.value = ""
+                    loginEmail.value = ""
+                    activeSessionToken.value = ""
                 }
-            }.onFailure { e ->
-                android.util.Log.e("IDENTITY_VM_INIT", "Failed to load session from database", e)
             }
         }
     }
