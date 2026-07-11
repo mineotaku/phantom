@@ -56,10 +56,13 @@ import androidx.compose.ui.unit.sp
 import com.example.ui.models.ChatMessage
 import com.example.ui.models.ChatUser
 import com.example.ui.theme.*
-import com.example.ui.viewmodel.PhantomViewModel
+import com.example.ui.viewmodel.ChatViewModel
+import com.example.ui.components.SecureTextField
+import com.example.ui.components.SelfDestructIndicator
+import com.example.security.SelfDestructTimer
 
 @Composable
-fun MessagingScreen(viewModel: PhantomViewModel) {
+fun MessagingScreen(viewModel: ChatViewModel) {
     val selectedChatUser by viewModel.selectedChatUser.collectAsState()
     var isChatDetailOpen by remember { mutableStateOf(false) }
 
@@ -83,10 +86,10 @@ fun MessagingScreen(viewModel: PhantomViewModel) {
 
 @Composable
 fun ChatListScreen(
-    viewModel: PhantomViewModel,
+    viewModel: ChatViewModel,
     onOpenChat: () -> Unit
 ) {
-    val users by viewModel.mockUsers.collectAsState()
+    val users by viewModel.mockUsers.collectAsState(initial = emptyList())
     val selectedChatUser by viewModel.selectedChatUser.collectAsState()
     val selectedFilterPill by viewModel.selectedFilterPill.collectAsState()
     val searchQuery by viewModel.searchQuery.collectAsState()
@@ -392,11 +395,22 @@ fun ChatListScreen(
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun ChatDetailScreen(
-    viewModel: PhantomViewModel,
+    viewModel: ChatViewModel,
     partner: ChatUser,
     onCloseChat: () -> Unit
 ) {
-    val messageList by viewModel.messageList.collectAsState()
+    var showSafetyNumberScreen by remember { mutableStateOf(false) }
+
+    if (showSafetyNumberScreen) {
+        SafetyNumberScreen(
+            viewModel = viewModel,
+            partner = partner,
+            onBack = { showSafetyNumberScreen = false }
+        )
+        return
+    }
+
+    val messageList by viewModel.messageList.collectAsState(initial = emptyList())
     val isEncryptingInProgress by viewModel.isEncryptingInProgress.collectAsState()
     val activePipelineStep by viewModel.activePipelineStep.collectAsState()
     val bobOnline by viewModel.bobOnline.collectAsState()
@@ -475,6 +489,46 @@ fun ChatDetailScreen(
                 )
             }
 
+            // Safety Number Fingerprint Button
+            IconButton(onClick = { showSafetyNumberScreen = true }) {
+                Icon(Icons.Default.VerifiedUser, contentDescription = "Verify Safety Numbers", tint = PhantomSecondary)
+            }
+
+            // E2EE Voice Call Button
+            IconButton(onClick = { 
+                viewModel.initiateVoIpCall(partner)
+                Toast.makeText(context, "Initiating E2EE audio call...", Toast.LENGTH_SHORT).show()
+            }) {
+                Icon(Icons.Default.Phone, contentDescription = "E2EE Call", tint = PhantomSecondary)
+            }
+
+            // Disappearing Messages Default Timer Configurations dropdown
+            var showTimerMenu by remember { mutableStateOf(false) }
+            val currentTimer by viewModel.defaultSelfDestructTimer.collectAsState()
+            Box {
+                IconButton(onClick = { showTimerMenu = true }) {
+                    Icon(
+                        imageVector = if (currentTimer == SelfDestructTimer.OFF) Icons.Default.TimerOff else Icons.Default.Timer,
+                        contentDescription = "Disappearing Messages Timer",
+                        tint = if (currentTimer == SelfDestructTimer.OFF) PhantomSecondary.copy(alpha = 0.6f) else Color(0xFF81C784)
+                    )
+                }
+                DropdownMenu(
+                    expanded = showTimerMenu,
+                    onDismissRequest = { showTimerMenu = false }
+                ) {
+                    SelfDestructTimer.values().forEach { timer ->
+                        DropdownMenuItem(
+                            text = { Text(timer.displayName) },
+                            onClick = {
+                                viewModel.defaultSelfDestructTimer.value = timer
+                                showTimerMenu = false
+                            }
+                        )
+                    }
+                }
+            }
+
             // Connection action toggles
             IconButton(onClick = { viewModel.bobOnline.value = !bobOnline }) {
                 Icon(
@@ -489,7 +543,6 @@ fun ChatDetailScreen(
             }
         }
 
-        // Message bubbles list
         // Message bubbles list
         val groupedItems = remember(messageList) { groupMessages(messageList) }
         LazyColumn(
@@ -613,6 +666,15 @@ fun ChatDetailScreen(
                                     horizontalArrangement = Arrangement.End,
                                     verticalAlignment = Alignment.CenterVertically
                                 ) {
+                                    // Disappearing messages countdown visualizer
+                                    if (msg.selfDestructAt > 0) {
+                                        SelfDestructIndicator(
+                                            destructionTime = msg.selfDestructAt,
+                                            totalDuration = msg.selfDestructDuration
+                                        )
+                                        Spacer(modifier = Modifier.width(8.dp))
+                                    }
+
                                     Icon(
                                         Icons.Default.Lock,
                                         contentDescription = null,
@@ -628,9 +690,9 @@ fun ChatDetailScreen(
                                     if (isMe) {
                                         Spacer(modifier = Modifier.width(4.dp))
                                         Icon(
-                                            imageVector = if (msg.isDelivered) Icons.Default.DoneAll else Icons.Default.Done,
+                                            imageVector = if (msg.isRead || msg.isDelivered) Icons.Default.DoneAll else Icons.Default.Done,
                                             contentDescription = null,
-                                            tint = if (msg.isDelivered) Color(0xFF81C784) else PhantomTertiary,
+                                            tint = if (msg.isRead) Color(0xFF4FC3F7) else if (msg.isDelivered) Color(0xFF81C784) else PhantomTertiary,
                                             modifier = Modifier.size(12.dp)
                                         )
                                     }
@@ -641,8 +703,6 @@ fun ChatDetailScreen(
                 }
             }
         }
-
-
 
         // Typing Status Dot Simulation
         typingStatus?.let { status ->
@@ -688,7 +748,7 @@ fun ChatDetailScreen(
             }
         }
 
-        // Text input bar
+        // Text input bar using SecureTextField
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -752,20 +812,14 @@ fun ChatDetailScreen(
                 }
             }
 
-            OutlinedTextField(
+            SecureTextField(
                 value = inputMessageText,
                 onValueChange = { viewModel.inputMessageText.value = it },
-                placeholder = { Text("Write E2EE message...") },
+                label = "Write E2EE message...",
                 singleLine = false,
-                maxLines = 3,
-                shape = RoundedCornerShape(20.dp),
-                colors = OutlinedTextFieldDefaults.colors(
-                    focusedBorderColor = PhantomBorder,
-                    unfocusedBorderColor = PhantomBorder,
-                    focusedContainerColor = PhantomBg,
-                    unfocusedContainerColor = PhantomBg
-                ),
-                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
+                visualTransformation = androidx.compose.ui.text.input.VisualTransformation.None,
+                keyboardType = androidx.compose.ui.text.input.KeyboardType.Text,
+                imeAction = ImeAction.Send,
                 keyboardActions = KeyboardActions(onSend = {
                     if (inputMessageText.trim().isNotEmpty()) {
                         val text = inputMessageText
@@ -804,12 +858,10 @@ fun ChatDetailScreen(
         AlertDialog(
             onDismissRequest = { showActionDialogForMessage = null },
             title = { Text("Secure Message Options") },
-            text = { Text("Select cryptographic or management actions on this message envelope.") },
-            confirmButton = {
-                TextButton(onClick = { showActionDialogForMessage = null }) { Text("CANCEL") }
-            },
-            dismissButton = {
+            text = {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("Select cryptographic or management actions on this message envelope.", style = MaterialTheme.typography.bodyMedium, color = PhantomTextSecondary)
+                    Spacer(modifier = Modifier.height(8.dp))
                     Button(
                         onClick = {
                             clipboardManager.setText(AnnotatedString(msg.text))
@@ -847,6 +899,10 @@ fun ChatDetailScreen(
                         Text("Purge storage trace (Delete)", color = Color.White)
                     }
                 }
+            },
+            confirmButton = {},
+            dismissButton = {
+                TextButton(onClick = { showActionDialogForMessage = null }) { Text("CANCEL") }
             }
         )
     }
@@ -1073,7 +1129,7 @@ private fun groupMessages(messages: List<ChatMessage>): List<MessageGroupItem> {
     return grouped
 }
 
-@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun RenderMediaGroup(
     item: MessageGroupItem,
@@ -1151,9 +1207,9 @@ fun RenderMediaGroup(
                     if (isMe) {
                         Spacer(modifier = Modifier.width(4.dp))
                         Icon(
-                            imageVector = if (item.mainMessage.isDelivered) Icons.Default.DoneAll else Icons.Default.Done,
+                            imageVector = if (item.mainMessage.isRead || item.mainMessage.isDelivered) Icons.Default.DoneAll else Icons.Default.Done,
                             contentDescription = null,
-                            tint = if (item.mainMessage.isDelivered) Color(0xFF81C784) else PhantomTertiary,
+                            tint = if (item.mainMessage.isRead) Color(0xFF4FC3F7) else if (item.mainMessage.isDelivered) Color(0xFF81C784) else PhantomTertiary,
                             modifier = Modifier.size(12.dp)
                         )
                     }
@@ -1232,10 +1288,10 @@ private fun queryRecentMedia(context: Context, mediaType: String): List<Uri> {
     } else {
         MediaStore.Video.Media.EXTERNAL_CONTENT_URI
     }
-    
+
     val projection = arrayOf(MediaStore.MediaColumns._ID)
     val sortOrder = "${MediaStore.MediaColumns.DATE_ADDED} DESC"
-    
+
     try {
         context.contentResolver.query(uri, projection, null, null, sortOrder)?.use { cursor ->
             val idColumn = cursor.getColumnIndexOrThrow(MediaStore.MediaColumns._ID)
@@ -1260,7 +1316,7 @@ fun AsyncThumbnail(
     modifier: Modifier = Modifier
 ) {
     var bitmap by remember { mutableStateOf<android.graphics.Bitmap?>(null) }
-    
+
     LaunchedEffect(uri) {
         withContext(Dispatchers.IO) {
             try {
@@ -1279,7 +1335,7 @@ fun AsyncThumbnail(
             }
         }
     }
-    
+
     if (bitmap != null) {
         Image(
             bitmap = bitmap!!.asImageBitmap(),

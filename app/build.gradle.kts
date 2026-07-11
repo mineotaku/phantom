@@ -32,7 +32,7 @@ android {
   buildTypes {
     release {
       isCrunchPngs = false
-      isMinifyEnabled = false
+      isMinifyEnabled = true
       proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
       signingConfig = signingConfigs.getByName("release")
     }
@@ -70,6 +70,26 @@ dependencies {
   implementation(libs.kotlinx.coroutines.android)
   implementation(libs.kotlinx.coroutines.core)
   implementation(libs.okhttp)
+  implementation("androidx.work:work-runtime-ktx:2.9.0")
+  implementation("com.google.firebase:firebase-messaging-ktx:23.4.1")
+  
+  // SQLCipher for encrypted database
+  implementation("net.zetetic:sqlcipher-android:4.6.1")
+  // Tink for advanced cryptographic primitives
+  implementation("com.google.crypto.tink:tink-android:1.15.0")
+  // BouncyCastle for post-quantum (ML-KEM/Kyber)
+  implementation("org.bouncycastle:bcprov-jdk18on:1.79")
+  // Play Integrity API
+  implementation("com.google.android.play:integrity:1.4.0")
+  // CameraX for QR scanning
+  implementation("androidx.camera:camera-camera2:1.4.0")
+  implementation("androidx.camera:camera-lifecycle:1.4.0")
+  implementation("androidx.camera:camera-view:1.4.0")
+  // ML Kit barcode scanning
+  implementation("com.google.mlkit:barcode-scanning:17.3.0")
+  // ZXing for QR code generation
+  implementation("com.google.zxing:core:3.5.3")
+
   testImplementation(libs.androidx.compose.ui.test.junit4)
   testImplementation(libs.androidx.core)
   testImplementation(libs.androidx.junit)

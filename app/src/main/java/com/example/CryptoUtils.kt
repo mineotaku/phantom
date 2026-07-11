@@ -85,13 +85,8 @@ object CryptoUtils {
         return SecretKeySpec(keyBytes, "AES")
     }
 
-    // Derive a shared symmetric key dynamically for two users based on sorted identities (Fallback for mock users)
-    fun getSharedKey(user1: String, user2: String): SecretKey {
-        val sortedString = listOf(user1, user2).sorted().joinToString("_")
-        val sha256 = MessageDigest.getInstance("SHA-256")
-        val keyBytes = sha256.digest(sortedString.toByteArray(Charsets.UTF_8))
-        return SecretKeySpec(keyBytes, "AES")
-    }
+    // REMOVED: getSharedKey(user1, user2) — insecure name-based key derivation with zero secret entropy.
+    // All callers must use proper ECDH key exchange via calculateECDHSharedKey() or fail explicitly.
 
     fun encrypt(plaintext: String, secretKey: SecretKey = getOrCreateMasterKey()): String {
         val cipher = Cipher.getInstance(AES_GCM_NOPADDING)
@@ -106,7 +101,7 @@ object CryptoUtils {
 
     fun decrypt(encryptedBase64: String, secretKey: SecretKey = getOrCreateMasterKey()): String {
         val combined = Base64.decode(encryptedBase64, Base64.DEFAULT)
-        if (combined.size < 12) return "decryption_error: payload_too_short"
+        if (combined.size < 12) throw IllegalArgumentException("decryption_error: payload_too_short")
         val iv = ByteArray(12)
         val ciphertext = ByteArray(combined.size - 12)
         System.arraycopy(combined, 0, iv, 0, 12)
@@ -141,4 +136,112 @@ object CryptoUtils {
         cipher.init(Cipher.DECRYPT_MODE, secretKey, spec)
         return cipher.doFinal(ciphertext)
     }
+
+    // --- Added for security roadmap ---
+    fun hkdfSha256(ikm: ByteArray, salt: ByteArray, info: ByteArray, length: Int): ByteArray {
+        return com.example.crypto.X3DHProtocol.hkdf(ikm, salt, info, length)
+    }
+
+    fun encryptAesGcm(plaintext: ByteArray, key: ByteArray, aad: ByteArray? = null): Pair<ByteArray, ByteArray> {
+        val nonce = generateNonce()
+        val cipher = Cipher.getInstance(AES_GCM_NOPADDING)
+        val spec = GCMParameterSpec(128, nonce)
+        cipher.init(Cipher.ENCRYPT_MODE, SecretKeySpec(key, "AES"), spec)
+        if (aad != null) {
+            cipher.updateAAD(aad)
+        }
+        val ciphertext = cipher.doFinal(plaintext)
+        return Pair(ciphertext, nonce)
+    }
+
+    fun decryptAesGcm(ciphertext: ByteArray, key: ByteArray, nonce: ByteArray, aad: ByteArray? = null): ByteArray {
+        val cipher = Cipher.getInstance(AES_GCM_NOPADDING)
+        val spec = GCMParameterSpec(128, nonce)
+        cipher.init(Cipher.DECRYPT_MODE, SecretKeySpec(key, "AES"), spec)
+        if (aad != null) {
+            cipher.updateAAD(aad)
+        }
+        return cipher.doFinal(ciphertext)
+    }
+
+    fun generateNonce(): ByteArray {
+        val nonce = ByteArray(12)
+        java.security.SecureRandom().nextBytes(nonce)
+        return nonce
+    }
+
+    fun computeHmacSha256(data: ByteArray, key: ByteArray): ByteArray {
+        val mac = javax.crypto.Mac.getInstance("HmacSHA256")
+        mac.init(SecretKeySpec(key, "HmacSHA256"))
+        return mac.doFinal(data)
+    }
+
+    fun constantTimeEquals(a: ByteArray, b: ByteArray): Boolean {
+        return java.security.MessageDigest.isEqual(a, b)
+    }
+
+    @Volatile
+    private var isDatabaseResetting = false
+
+    fun getDatabasePassphrase(context: android.content.Context): ByteArray {
+        val prefs = context.getSharedPreferences("phantom_security", android.content.Context.MODE_PRIVATE)
+        val encryptedKeyBase64 = prefs.getString("encrypted_db_key", null)
+        val masterKey = getOrCreateMasterKey()
+        
+        if (encryptedKeyBase64 == null) {
+            val rawKey = ByteArray(32)
+            java.security.SecureRandom().nextBytes(rawKey)
+            val encryptedBase64 = encrypt(Base64.encodeToString(rawKey, Base64.NO_WRAP), masterKey)
+            prefs.edit().putString("encrypted_db_key", encryptedBase64).apply()
+            return rawKey
+        } else {
+            return try {
+                val decryptedStr = decrypt(encryptedKeyBase64, masterKey)
+                Base64.decode(decryptedStr, Base64.DEFAULT)
+            } catch (e: Exception) {
+                android.util.Log.e("PHANTOM_CRYPTO", "Failed to decrypt database passphrase. Possible KeyStore corruption. Deleting database to allow recovery.", e)
+                
+                if (!isDatabaseResetting) {
+                    isDatabaseResetting = true
+                    try {
+                        context.deleteDatabase("phantom_secure.db")
+                    } finally {
+                        isDatabaseResetting = false
+                    }
+                }
+
+                val rawKey = ByteArray(32)
+                java.security.SecureRandom().nextBytes(rawKey)
+                val encryptedBase64 = encrypt(Base64.encodeToString(rawKey, Base64.NO_WRAP), masterKey)
+                prefs.edit().putString("encrypted_db_key", encryptedBase64).apply()
+                rawKey
+            }
+        }
+    }
+
+    fun pad(input: ByteArray, blockSize: Int = 128): ByteArray {
+        val paddingLength = blockSize - (input.size % blockSize)
+        val padded = ByteArray(input.size + paddingLength)
+        System.arraycopy(input, 0, padded, 0, input.size)
+        for (i in input.size until padded.size) {
+            padded[i] = paddingLength.toByte()
+        }
+        return padded
+    }
+
+    fun unpad(input: ByteArray): ByteArray {
+        if (input.isEmpty()) return input
+        val paddingLength = input.last().toInt() and 0xFF
+        if (paddingLength <= 0 || paddingLength > input.size) return input
+        for (i in (input.size - paddingLength) until input.size) {
+            if (input[i].toInt() != paddingLength) {
+                return input
+            }
+        }
+        val unpadded = ByteArray(input.size - paddingLength)
+        System.arraycopy(input, 0, unpadded, 0, unpadded.size)
+        return unpadded
+    }
 }
+
+

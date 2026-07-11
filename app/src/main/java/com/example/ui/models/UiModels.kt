@@ -13,7 +13,9 @@ data class ChatMessage(
     val timestampMillis: Long,
     val isEncrypted: Boolean,
     val isDelivered: Boolean,
-    val isRead: Boolean
+    val isRead: Boolean,
+    val selfDestructAt: Long = 0,
+    val selfDestructDuration: Long = 0
 )
 
 data class ChatUser(

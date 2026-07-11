@@ -5,6 +5,7 @@ import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.biometric.BiometricPrompt
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -29,25 +30,50 @@ import com.example.ui.theme.MyApplicationTheme
 import com.example.ui.theme.PhantomBg
 import com.example.ui.theme.PhantomPrimary
 import com.example.ui.theme.PhantomSecondary
-import com.example.ui.viewmodel.PhantomViewModel
+import androidx.lifecycle.ViewModelProvider
+import androidx.lifecycle.viewModelScope
+import com.example.ui.viewmodel.*
+import kotlinx.coroutines.launch
 
 class MainActivity : FragmentActivity() {
     private lateinit var database: PhantomDatabase
     private lateinit var viewModel: PhantomViewModel
+    private lateinit var authViewModel: AuthViewModel
+    private lateinit var chatViewModel: ChatViewModel
+    private lateinit var identityViewModel: IdentityViewModel
+    private lateinit var securityViewModel: SecurityViewModel
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         
-        // Initialize local secure Room database (Version 3 with fallback)
-        database = androidx.room.Room.databaseBuilder(
-            applicationContext,
-            PhantomDatabase::class.java,
-            "phantom_secure.db",
-        ).fallbackToDestructiveMigration(true).build()
+        // Log all uncaught errors to Android Logcat to aid troubleshooting
 
-        // Create Repository & ViewModel
-        val repository = PhantomRepository(database.phantomDao())
-        viewModel = PhantomViewModel(application, repository)
+        // Prevent screenshots / video recording
+        window.setFlags(
+            android.view.WindowManager.LayoutParams.FLAG_SECURE,
+            android.view.WindowManager.LayoutParams.FLAG_SECURE
+        )
+
+        val app = application as PhantomApplication
+        database = app.database
+        val repository = app.repository
+
+        val factory = ViewModelFactory(repository)
+        viewModel = ViewModelProvider(this, factory)[PhantomViewModel::class.java]
+        authViewModel = ViewModelProvider(this, factory)[AuthViewModel::class.java]
+        chatViewModel = ViewModelProvider(this, factory)[ChatViewModel::class.java]
+        identityViewModel = ViewModelProvider(this, factory)[IdentityViewModel::class.java]
+        securityViewModel = ViewModelProvider(this, factory)[SecurityViewModel::class.java]
+
+        // Schedule periodic background signed prekey rotation (runs every 14 days)
+        val rotationRequest = androidx.work.PeriodicWorkRequestBuilder<com.example.sync.PreKeyRotationWorker>(
+            14, java.util.concurrent.TimeUnit.DAYS
+        ).build()
+        androidx.work.WorkManager.getInstance(applicationContext).enqueueUniquePeriodicWork(
+            "PreKeyRotation",
+            androidx.work.ExistingPeriodicWorkPolicy.KEEP,
+            rotationRequest
+        )
 
         if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
             val permission = android.Manifest.permission.POST_NOTIFICATIONS
@@ -64,12 +90,18 @@ class MainActivity : FragmentActivity() {
                     color = PhantomBg
                 ) {
                     val isLoggedIn by viewModel.isLoggedIn.collectAsState()
+                    val isAppLocked by viewModel.isAppLocked.collectAsState()
                     
                     if (!isLoggedIn) {
-                        LoginScreen(viewModel = viewModel)
+                        LoginScreen(viewModel = authViewModel)
+                    } else if (isAppLocked) {
+                        AppLockScreen(viewModel = viewModel)
                     } else {
                         MainScaffold(
-                            viewModel = viewModel
+                            viewModel = viewModel,
+                            chatViewModel = chatViewModel,
+                            identityViewModel = identityViewModel,
+                            securityViewModel = securityViewModel
                         ) { onSuccess ->
                             triggerBiometricAuth(onSuccess)
                         }
@@ -113,11 +145,21 @@ class MainActivity : FragmentActivity() {
             }
         }
     }
+
+    override fun onStop() {
+        super.onStop()
+        if (com.example.security.DuressPin.isAppLockEnabled(applicationContext)) {
+            viewModel.isAppLocked.value = true
+        }
+    }
 }
 
 @Composable
 fun MainScaffold(
     viewModel: PhantomViewModel,
+    chatViewModel: ChatViewModel,
+    identityViewModel: IdentityViewModel,
+    securityViewModel: SecurityViewModel,
     onTriggerBiometricAuth: (onSuccess: () -> Unit) -> Unit
 ) {
     val navController = rememberNavController()
@@ -213,22 +255,152 @@ fun MainScaffold(
                     modifier = Modifier.fillMaxSize()
                 ) {
                     composable("identity") {
-                        IdentityScreen(viewModel = viewModel)
+                        IdentityScreen(viewModel = identityViewModel)
                     }
                     composable("messages") {
-                        MessagingScreen(viewModel = viewModel)
+                        MessagingScreen(viewModel = chatViewModel)
                     }
                     composable("storage") {
                         StorageScreen(viewModel = viewModel)
                     }
                     composable("network") {
-                        NetworkScreen(viewModel = viewModel)
+                        NetworkScreen(viewModel = chatViewModel)
                     }
                     composable("security") {
                         SecurityScreen(
-                            viewModel = viewModel,
+                            viewModel = securityViewModel,
                             onTriggerBiometricAuth = onTriggerBiometricAuth
                         )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun AppLockScreen(viewModel: PhantomViewModel) {
+    val context = androidx.compose.ui.platform.LocalContext.current
+    var pinInput by remember { mutableStateOf("") }
+    var errorMessage by remember { mutableStateOf<String?>(null) }
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(com.example.ui.theme.PhantomBg)
+            .padding(24.dp),
+        verticalArrangement = Arrangement.Center,
+        horizontalAlignment = androidx.compose.ui.Alignment.CenterHorizontally
+    ) {
+        Icon(
+            imageVector = Icons.Default.Lock,
+            contentDescription = "Lock Icon",
+            tint = com.example.ui.theme.PhantomSecondary,
+            modifier = Modifier.size(64.dp)
+        )
+        Spacer(modifier = Modifier.height(16.dp))
+        Text(
+            text = "Phantom Locked",
+            style = MaterialTheme.typography.headlineMedium,
+            fontWeight = FontWeight.Bold,
+            color = Color.White
+        )
+        Text(
+            text = "Enter your secure PIN to access local E2EE storage",
+            style = MaterialTheme.typography.bodyMedium,
+            color = Color.Gray,
+            textAlign = androidx.compose.ui.text.style.TextAlign.Center
+        )
+        Spacer(modifier = Modifier.height(32.dp))
+
+        // Custom indicator dots showing PIN length
+        Row(
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            verticalAlignment = androidx.compose.ui.Alignment.CenterVertically
+        ) {
+            for (i in 0 until 4) {
+                val active = pinInput.length > i
+                Box(
+                    modifier = Modifier
+                        .size(16.dp)
+                        .background(
+                            color = if (active) com.example.ui.theme.PhantomSecondary else Color.DarkGray,
+                            shape = androidx.compose.foundation.shape.CircleShape
+                        )
+                )
+            }
+        }
+
+        Spacer(modifier = Modifier.height(24.dp))
+        if (errorMessage != null) {
+            Text(
+                text = errorMessage!!,
+                color = MaterialTheme.colorScheme.error,
+                style = MaterialTheme.typography.bodySmall
+            )
+            Spacer(modifier = Modifier.height(16.dp))
+        }
+
+        // Standard numeric keyboard grid
+        val keys = listOf(
+            listOf("1", "2", "3"),
+            listOf("4", "5", "6"),
+            listOf("7", "8", "9"),
+            listOf("C", "0", "⌫")
+        )
+
+        Column(
+            verticalArrangement = Arrangement.spacedBy(16.dp),
+            horizontalAlignment = androidx.compose.ui.Alignment.CenterHorizontally
+        ) {
+            for (row in keys) {
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(24.dp)
+                ) {
+                    for (key in row) {
+                        TextButton(
+                            onClick = {
+                                errorMessage = null
+                                when (key) {
+                                    "C" -> pinInput = ""
+                                    "⌫" -> if (pinInput.isNotEmpty()) pinInput = pinInput.substring(0, pinInput.length - 1)
+                                    else -> {
+                                        if (pinInput.length < 4) {
+                                            pinInput += key
+                                            if (pinInput.length == 4) {
+                                                // Trigger verification
+                                                val duressActive = com.example.security.DuressPin.isDuressEnabled(context)
+                                                val realActive = com.example.security.DuressPin.isAppLockEnabled(context)
+                                                
+                                                if (duressActive && com.example.security.DuressPin.verifyDuressPin(context, pinInput)) {
+                                                    viewModel.addLog("SYS", "Security perimeter breached! Panic wipe sequence triggered.")
+                                                    viewModel.viewModelScope.launch {
+                                                        com.example.security.DuressPin.executePanicWipe(context, viewModel.repository)
+                                                    }
+                                                } else if (realActive && com.example.security.DuressPin.verifyRealPin(context, pinInput)) {
+                                                    viewModel.isAppLocked.value = false
+                                                } else {
+                                                    errorMessage = "Incorrect PIN code. Access denied."
+                                                    pinInput = ""
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            },
+                            modifier = Modifier.size(64.dp),
+                            shape = androidx.compose.foundation.shape.CircleShape,
+                            colors = ButtonDefaults.textButtonColors(
+                                containerColor = Color.DarkGray.copy(alpha = 0.2f),
+                                contentColor = Color.White
+                            )
+                        ) {
+                            Text(
+                                text = key,
+                                style = MaterialTheme.typography.titleLarge,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
                     }
                 }
             }

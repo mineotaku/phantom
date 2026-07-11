@@ -22,7 +22,9 @@ data class RoomChatMessage(
     val isEncrypted: Boolean,
     val isDelivered: Boolean,
     val isRead: Boolean,
-    val chatPartner: String
+    val chatPartner: String,
+    val selfDestructAt: Long = 0,        // timestamp when message should be deleted, 0 = never
+    val selfDestructDuration: Long = 0   // duration in millis for display countdown
 )
 
 @Entity(tableName = "chat_users")
@@ -76,6 +78,9 @@ interface PhantomDao {
     @Query("DELETE FROM chat_messages")
     suspend fun clearAllMessages()
 
+    @Query("SELECT COUNT(*) FROM chat_messages WHERE chatPartner = :partner")
+    suspend fun getMessageCountForPartner(partner: String): Int
+
     @Query("""
         SELECT cu.* FROM chat_users cu
         LEFT JOIN (
@@ -104,9 +109,92 @@ interface PhantomDao {
 
     @Query("DELETE FROM user_session")
     suspend fun clearSession()
+
+    // --- Added for security roadmap ---
+
+    // Ratchet Sessions
+    @Query("SELECT * FROM ratchet_sessions WHERE peerId = :peerId LIMIT 1")
+    suspend fun getRatchetSession(peerId: String): RatchetSessionEntity?
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertRatchetSession(session: RatchetSessionEntity)
+
+    @Query("DELETE FROM ratchet_sessions WHERE peerId = :peerId")
+    suspend fun deleteRatchetSession(peerId: String)
+
+    @Query("SELECT * FROM ratchet_sessions")
+    suspend fun getAllRatchetSessions(): List<RatchetSessionEntity>
+
+    // Signed PreKeys
+    @Query("SELECT * FROM signed_prekeys WHERE keyId = :keyId LIMIT 1")
+    suspend fun getSignedPreKey(keyId: Int): SignedPreKeyEntity?
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertSignedPreKey(key: SignedPreKeyEntity)
+
+    @Query("SELECT * FROM signed_prekeys ORDER BY createdAt DESC LIMIT 1")
+    suspend fun getLatestSignedPreKey(): SignedPreKeyEntity?
+
+    // One-Time PreKeys
+    @Query("SELECT * FROM one_time_prekeys WHERE keyId = :keyId LIMIT 1")
+    suspend fun getOneTimePreKey(keyId: Int): OneTimePreKeyEntity?
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertOneTimePreKey(key: OneTimePreKeyEntity)
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertOneTimePreKeys(keys: List<OneTimePreKeyEntity>)
+
+    @Query("UPDATE one_time_prekeys SET isConsumed = 1 WHERE keyId = :keyId")
+    suspend fun consumeOneTimePreKey(keyId: Int)
+
+    @Query("SELECT COUNT(*) FROM one_time_prekeys WHERE isConsumed = 0")
+    suspend fun getAvailableOneTimePreKeyCount(): Int
+
+    @Query("SELECT * FROM one_time_prekeys WHERE isConsumed = 0 ORDER BY keyId ASC LIMIT 1")
+    suspend fun getNextAvailableOneTimePreKey(): OneTimePreKeyEntity?
+
+    @Query("SELECT * FROM one_time_prekeys WHERE isConsumed = 0 ORDER BY keyId ASC")
+    suspend fun getAllUnusedOneTimePreKeys(): List<OneTimePreKeyEntity>
+
+
+    // Devices
+    @Query("SELECT * FROM linked_devices WHERE userId = :userId AND isRevoked = 0")
+    suspend fun getActiveDevices(userId: String): List<DeviceEntity>
+
+    @Query("SELECT * FROM linked_devices")
+    suspend fun getAllDevices(): List<DeviceEntity>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertDevice(device: DeviceEntity)
+
+    @Query("UPDATE linked_devices SET isRevoked = 1 WHERE deviceId = :deviceId")
+    suspend fun revokeDevice(deviceId: String)
+
+    @Query("DELETE FROM linked_devices")
+    suspend fun clearAllDevices()
+
+    // Self-destruct
+    @Query("SELECT * FROM chat_messages WHERE selfDestructAt > 0 AND selfDestructAt < :now")
+    suspend fun getExpiredSelfDestructMessages(now: Long): List<RoomChatMessage>
+
+    @Query("DELETE FROM chat_messages WHERE selfDestructAt > 0 AND selfDestructAt < :now")
+    suspend fun deleteExpiredSelfDestructMessages(now: Long)
 }
 
-@Database(entities = [RoomChatMessage::class, RoomChatUser::class, UserSession::class], version = 4, exportSchema = false)
+@Database(
+    entities = [
+        RoomChatMessage::class,
+        RoomChatUser::class,
+        UserSession::class,
+        RatchetSessionEntity::class,
+        SignedPreKeyEntity::class,
+        OneTimePreKeyEntity::class,
+        DeviceEntity::class
+    ],
+    version = 6,
+    exportSchema = false
+)
 abstract class PhantomDatabase : RoomDatabase() {
     abstract fun phantomDao(): PhantomDao
 }

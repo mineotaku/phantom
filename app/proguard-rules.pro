@@ -1,21 +1,22 @@
 # Add project specific ProGuard rules here.
 # You can control the set of applied configuration files using the
 # proguardFiles setting in build.gradle.
-#
-# For more details, see
-#   http://developer.android.com/guide/developing/tools/proguard.html
 
-# If your project uses WebView with JS, uncomment the following
-# and specify the fully qualified class name to the JavaScript interface
-# class:
-#-keepclassmembers class fqcn.of.javascript.interface.for.webview {
-#   public *;
-#}
+# SQLCipher specific rules
+-keep class net.zetetic.database.sqlcipher.** { *; }
+-keep class net.zetetic.database.sqlcipher.SupportOpenHelperFactory { *; }
+-dontwarn net.zetetic.database.sqlcipher.**
 
-# Uncomment this to preserve the line number information for
-# debugging stack traces.
-#-keepattributes SourceFile,LineNumberTable
+# Bouncy Castle (for ML-KEM and hybrid PQ)
+-keep class org.bouncycastle.** { *; }
+-dontwarn org.bouncycastle.**
 
-# If you keep the line number information, uncomment this to
-# hide the original source file name.
-#-renamesourcefileattribute SourceFile
+# Google Tink crypto
+-keep class com.google.crypto.tink.** { *; }
+-dontwarn com.google.crypto.tink.**
+
+# Standard Android lifecycle keeping rules
+-keepclassmembers class * extends androidx.lifecycle.ViewModel {
+    public <init>(...);
+}
+-keepattributes Signature, *Annotation*, InnerClasses, EnclosingMethod

@@ -19,3 +19,5 @@ debug.keystore
 server/.venv/
 server/phantom.db
 server/__pycache__/
+/phantom.db
+

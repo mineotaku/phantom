@@ -67,7 +67,7 @@ fun StorageScreen(viewModel: PhantomViewModel) {
                                     color = PhantomSecondary
                                 )
                                 Text(
-                                    text = if (sqlCipherLocked) "Locked & Encrypted (Simulated)" else "Decrypted & Connected",
+                                    text = if (sqlCipherLocked) "Locked & Encrypted (SQLCipher)" else "Decrypted & Connected",
                                     style = MaterialTheme.typography.labelSmall,
                                     color = if (sqlCipherLocked) PhantomError else Color(0xFF81C784),
                                     fontWeight = FontWeight.Bold
@@ -88,7 +88,7 @@ fun StorageScreen(viewModel: PhantomViewModel) {
 
                     Spacer(modifier = Modifier.height(16.dp))
                     Text(
-                        text = "The application persistence container stores chats, identities, and media metadata using Room. The encryption visualization below demonstrates how database keys would be managed in a production SQLCipher deployment.",
+                        text = "The application persistence container stores chats, identities, and media metadata using Room database encrypted transparently with SQLCipher. All data is unreadable from disk without deriving the Keystore-wrapped master AES database key.",
                         style = MaterialTheme.typography.bodyMedium,
                         color = PhantomTextSecondary
                     )

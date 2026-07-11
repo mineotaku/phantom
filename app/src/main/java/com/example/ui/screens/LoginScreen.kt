@@ -1,51 +1,49 @@
 package com.example.ui.screens
 
 import androidx.compose.foundation.BorderStroke
-import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
-import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.res.painterResource
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Dns
 import androidx.compose.material.icons.filled.Email
 import androidx.compose.material.icons.filled.Lock
-import androidx.compose.material.icons.filled.Terminal
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.testTag
-import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.viewModelScope
 import com.example.ui.theme.*
 import com.example.ui.viewmodel.PhantomViewModel
+import com.example.ui.components.SecureTextField
+import com.example.security.DuressPin
+import kotlinx.coroutines.launch
 
 @Composable
-fun LoginScreen(viewModel: PhantomViewModel) {
+fun LoginScreen(viewModel: com.example.ui.viewmodel.AuthViewModel) {
     val focusManager = LocalFocusManager.current
+    val context = LocalContext.current
     
     val loginEmail by viewModel.loginEmail.collectAsState()
+    val serverHost by com.example.network.NetworkConfig.serverHost.collectAsState()
     val loginOtpInput by viewModel.loginOtpInput.collectAsState()
     val isSendingOtp by viewModel.isSendingOtp.collectAsState()
     val otpStepActive by viewModel.otpStepActive.collectAsState()
     val loginErrorMsg by viewModel.loginErrorMsg.collectAsState()
     val loginSuccessSplash by viewModel.loginSuccessSplash.collectAsState()
     val otpTimerSeconds by viewModel.otpTimerSeconds.collectAsState()
-    val showSmtpRelayLogs by viewModel.showSmtpRelayLogs.collectAsState()
     
     Box(
         modifier = Modifier
@@ -132,26 +130,37 @@ fun LoginScreen(viewModel: PhantomViewModel) {
                             Spacer(modifier = Modifier.height(8.dp))
                             
                             Text(
-                                text = "Enter your secure email address to receive an ephemeral login token code.",
+                                text = "Configure your relay server host and enter your secure email address to start registration.",
                                 style = MaterialTheme.typography.bodyMedium,
                                 color = PhantomTextSecondary,
                                 textAlign = TextAlign.Center
                             )
                             
                             Spacer(modifier = Modifier.height(20.dp))
+
+                            SecureTextField(
+                                value = serverHost,
+                                onValueChange = { com.example.network.NetworkConfig.serverHost.value = it },
+                                label = "Relay Server Host",
+                                leadingIcon = { Icon(Icons.Default.Dns, contentDescription = null, tint = PhantomTertiary) },
+                                singleLine = true,
+                                keyboardType = KeyboardType.Uri,
+                                imeAction = ImeAction.Next,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .testTag("server_host_field")
+                            )
+
+                            Spacer(modifier = Modifier.height(12.dp))
                             
-                            OutlinedTextField(
+                            SecureTextField(
                                 value = loginEmail,
                                 onValueChange = { viewModel.loginEmail.value = it },
-                                label = { Text("Secure Email Address") },
+                                label = "Secure Email Address",
                                 leadingIcon = { Icon(Icons.Default.Email, contentDescription = null, tint = PhantomTertiary) },
                                 singleLine = true,
-                                shape = RoundedCornerShape(12.dp),
-                                colors = OutlinedTextFieldDefaults.colors(
-                                    focusedBorderColor = PhantomSecondary,
-                                    unfocusedBorderColor = PhantomBorder
-                                ),
-                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email),
+                                keyboardType = KeyboardType.Email,
+                                imeAction = ImeAction.Done,
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .testTag("email_input_field")
@@ -164,7 +173,7 @@ fun LoginScreen(viewModel: PhantomViewModel) {
                                     focusManager.clearFocus()
                                     viewModel.dispatchEmailOtp(loginEmail)
                                 },
-                                enabled = loginEmail.isNotBlank() && !isSendingOtp,
+                                enabled = loginEmail.isNotBlank() && serverHost.isNotBlank() && !isSendingOtp,
                                 shape = RoundedCornerShape(12.dp),
                                 colors = ButtonDefaults.buttonColors(containerColor = PhantomSecondary, contentColor = Color.White),
                                 modifier = Modifier
@@ -210,18 +219,14 @@ fun LoginScreen(viewModel: PhantomViewModel) {
                             
                             Spacer(modifier = Modifier.height(24.dp))
                             
-                            OutlinedTextField(
+                            SecureTextField(
                                 value = loginOtpInput,
-                                onValueChange = { if (it.length <= 6) viewModel.loginOtpInput.value = it },
-                                label = { Text("Secure 6-Digit Code") },
+                                onValueChange = { viewModel.loginOtpInput.value = it },
+                                label = "Secure Code or PIN",
                                 leadingIcon = { Icon(Icons.Default.Lock, contentDescription = null, tint = PhantomTertiary) },
                                 singleLine = true,
-                                shape = RoundedCornerShape(12.dp),
-                                colors = OutlinedTextFieldDefaults.colors(
-                                    focusedBorderColor = PhantomSecondary,
-                                    unfocusedBorderColor = PhantomBorder
-                                ),
-                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                                keyboardType = KeyboardType.NumberPassword,
+                                imeAction = ImeAction.Done,
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .testTag("otp_input_field")
@@ -256,7 +261,7 @@ fun LoginScreen(viewModel: PhantomViewModel) {
                                     focusManager.clearFocus()
                                     viewModel.verifyOtpCode(loginOtpInput)
                                 },
-                                enabled = loginOtpInput.length == 6,
+                                enabled = loginOtpInput.length >= 4,
                                 shape = RoundedCornerShape(12.dp),
                                 colors = ButtonDefaults.buttonColors(containerColor = PhantomSecondary, contentColor = Color.White),
                                 modifier = Modifier
@@ -291,7 +296,5 @@ fun LoginScreen(viewModel: PhantomViewModel) {
                 }
             }
         }
-        
-
     }
 }
