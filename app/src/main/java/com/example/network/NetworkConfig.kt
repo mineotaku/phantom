@@ -7,8 +7,8 @@ import okhttp3.OkHttpClient
 
 object NetworkConfig {
     val serverHost = MutableStateFlow("phantom-pu9t.onrender.com")
-    val usePinningState = MutableStateFlow(true)
-    val clientState = MutableStateFlow(buildClient(true))
+    val usePinningState = MutableStateFlow(false)
+    val clientState = MutableStateFlow(buildClient(false))
 
     fun rebuildClient(usePinning: Boolean) {
         usePinningState.value = usePinning

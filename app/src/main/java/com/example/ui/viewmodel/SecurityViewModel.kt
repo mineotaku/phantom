@@ -11,7 +11,7 @@ class SecurityViewModel(val repository: PhantomRepository) : ViewModel() {
     val biometricEnabled = MutableStateFlow(true)
     val loginEmail = MutableStateFlow("")
     val defaultSelfDestructTimer = MutableStateFlow(SelfDestructTimer.OFF)
-    val certificatePinningActive = MutableStateFlow(true)
+    val certificatePinningActive = MutableStateFlow(false)
 
     init {
         viewModelScope.launch {
