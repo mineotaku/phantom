@@ -44,7 +44,12 @@ object NetworkConfig {
     }
 
     fun getServerUrl(path: String): String {
-        val host = serverHost.value.trim()
+        var host = serverHost.value.trim()
+        if (host.startsWith("http://")) {
+            host = host.removePrefix("http://")
+        } else if (host.startsWith("https://")) {
+            host = host.removePrefix("https://")
+        }
         val scheme = if (host.contains("10.0.2.2") || host.contains("192.168") || host.contains("localhost") || host.contains("127.0.0.1") || host.contains(":")) {
             "http"
         } else {
