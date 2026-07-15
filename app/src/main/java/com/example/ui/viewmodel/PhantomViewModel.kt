@@ -1340,34 +1340,28 @@ class PhantomViewModel(
         viewModelScope.launch(Dispatchers.IO) {
             val token = activeSessionToken.value
             if (token.isBlank()) return@launch
-            addLog("SYS", "Syncing friend contacts...")
-            val request = buildAuthorizedRequest(getServerUrl("/api/friends/list"))
+            addLog("SYS", "Syncing contacts...")
             try {
+                val request = buildAuthorizedRequest(getServerUrl("/api/users"))
                 val responseJson = withContext(Dispatchers.IO) {
                     client.newCall(request).execute().use { response ->
-                        if (response.isSuccessful) {
-                            response.body?.string() ?: "[]"
-                        } else if (response.code == 401) {
-                            handleSessionExpired()
-                            "[]"
-                        } else {
-                            "[]"
-                        }
+                        if (response.isSuccessful) response.body?.string() ?: "[]"
+                        else if (response.code == 401) { handleSessionExpired(); "[]" }
+                        else "[]"
                     }
                 }
                 val usersJson = JSONArray(responseJson)
+                val myName = loginEmail.value.substringBefore("@")
                 val syncedUsers = (0 until usersJson.length()).mapNotNull { index ->
                     val obj = usersJson.optJSONObject(index) ?: return@mapNotNull null
                     val name = obj.optString("name").takeIf { it.isNotBlank() } ?: return@mapNotNull null
+                    if (name == myName) return@mapNotNull null
                     val pubKey = obj.optString("publicKey")
                     RoomChatUser(name, "Secure connection active", "Now", 0, 0xFF4FC3F7.toInt(), true, pubKey)
                 }
-                repository.clearAllMessages()
                 repository.insertUsers(syncedUsers)
-                addLog("SYS", "Synced ${syncedUsers.size} friends from server.")
-            } catch (e: Exception) {
-                // Keep existing contacts if offline
-            }
+                addLog("SYS", "Synced ${syncedUsers.size} registered users.")
+            } catch (_: Exception) { }
         }
     }
 
@@ -1449,47 +1443,48 @@ class PhantomViewModel(
     }
 
     fun searchUsers(query: String, callback: (List<Pair<String, String>>) -> Unit) {
+        if (query.isBlank()) { callback(emptyList()); return }
         viewModelScope.launch(Dispatchers.IO) {
-            val encoded = java.net.URLEncoder.encode(query, "UTF-8")
-            val request = buildAuthorizedRequest(getServerUrl("/api/users/search?q=$encoded"))
             try {
+                val request = buildAuthorizedRequest(getServerUrl("/api/users"))
                 client.newCall(request).execute().use { response ->
                     if (response.isSuccessful) {
                         val arr = JSONArray(response.body?.string() ?: "[]")
+                        val myName = loginEmail.value.substringBefore("@")
+                        val q = query.lowercase()
                         val list = (0 until arr.length()).mapNotNull { i ->
                             val obj = arr.optJSONObject(i)
-                            if (obj != null) Pair(obj.optString("name"), obj.optString("publicKey")) else null
+                            if (obj != null) {
+                                val name = obj.optString("name")
+                                if (name != myName && name.lowercase().contains(q)) Pair(name, obj.optString("publicKey")) else null
+                            } else null
                         }
                         withContext(Dispatchers.Main) { callback(list) }
-                    } else {
-                        withContext(Dispatchers.Main) { callback(emptyList()) }
-                    }
+                    } else { withContext(Dispatchers.Main) { callback(emptyList()) } }
                 }
-            } catch (_: Exception) {
-                withContext(Dispatchers.Main) { callback(emptyList()) }
-            }
+            } catch (_: Exception) { withContext(Dispatchers.Main) { callback(emptyList()) } }
         }
     }
 
     fun getAvailableUsers(callback: (List<Pair<String, String>>) -> Unit) {
         viewModelScope.launch(Dispatchers.IO) {
-            val request = buildAuthorizedRequest(getServerUrl("/api/users/available"))
             try {
+                val request = buildAuthorizedRequest(getServerUrl("/api/users"))
                 client.newCall(request).execute().use { response ->
                     if (response.isSuccessful) {
                         val arr = JSONArray(response.body?.string() ?: "[]")
+                        val myName = loginEmail.value.substringBefore("@")
                         val list = (0 until arr.length()).mapNotNull { i ->
                             val obj = arr.optJSONObject(i)
-                            if (obj != null) Pair(obj.optString("name"), obj.optString("publicKey")) else null
+                            if (obj != null) {
+                                val name = obj.optString("name")
+                                if (name != myName) Pair(name, obj.optString("publicKey")) else null
+                            } else null
                         }
                         withContext(Dispatchers.Main) { callback(list) }
-                    } else {
-                        withContext(Dispatchers.Main) { callback(emptyList()) }
-                    }
+                    } else { withContext(Dispatchers.Main) { callback(emptyList()) } }
                 }
-            } catch (_: Exception) {
-                withContext(Dispatchers.Main) { callback(emptyList()) }
-            }
+            } catch (_: Exception) { withContext(Dispatchers.Main) { callback(emptyList()) } }
         }
     }
 
