@@ -3,7 +3,7 @@ import re
 import secrets
 import smtplib
 from contextlib import contextmanager
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from typing import Any, Generator
@@ -257,7 +257,7 @@ else:
 
 
 def utc_now() -> datetime:
-    return datetime.utcnow()
+    return datetime.now(timezone.utc)
 
 
 def normalize_email(email: str) -> str:
@@ -290,7 +290,7 @@ def get_current_user_email(
     db: Session = Depends(get_db)
 ) -> str:
     token = credentials.credentials
-    now = datetime.utcnow()
+    now = utc_now()
     stmt = select(SessionToken).where(SessionToken.token == token, SessionToken.expires_at > now)
     session = db.scalar(stmt)
     if not session:
@@ -852,13 +852,13 @@ def request_sender_certificate(
     user = email.split("@")[0]
     # Issue sender verification certificate signed by server identity
     # Simulated signature for simplicity
-    cert_data = f"phantom_sender_cert:{user}:exp_{int(datetime.utcnow().timestamp()) + 86400}"
+    cert_data = f"phantom_sender_cert:{user}:exp_{int(utc_now().timestamp()) + 86400}"
     signature = secrets.token_urlsafe(32)
     return {
         "userId": user,
         "certificate": cert_data,
         "signature": signature,
-        "expiration": int(datetime.utcnow().timestamp()) + 86400
+        "expiration": int(utc_now().timestamp()) + 86400
     }
 
 
