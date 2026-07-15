@@ -21,7 +21,7 @@ from sqlalchemy import Boolean, DateTime, Integer, String, Text, create_engine, 
 from sqlalchemy.orm import DeclarativeBase, Mapped, Session, mapped_column, sessionmaker
 
 
-DATABASE_URL = os.environ.get("DATABASE_URL", "sqlite:///./phantom.db")
+DATABASE_URL = os.environ.get("DATABASE_URL", "sqlite:///./phantom.db").strip()
 if DATABASE_URL.startswith("postgres://"):
     DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql+psycopg://", 1)
 elif DATABASE_URL.startswith("postgresql://"):
