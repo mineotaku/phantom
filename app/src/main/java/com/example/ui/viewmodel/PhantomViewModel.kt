@@ -1499,17 +1499,21 @@ class PhantomViewModel(
             try {
                 client.newCall(request).execute().use { response ->
                     if (response.isSuccessful) {
-                        val arr = JSONArray(response.body?.string() ?: "[]")
+                        val bodyStr = response.body?.string() ?: "[]"
+                        val arr = JSONArray(bodyStr)
                         val list = (0 until arr.length()).mapNotNull { i ->
                             val obj = arr.optJSONObject(i)
                             if (obj != null) Pair(obj.optString("name"), obj.optString("publicKey")) else null
                         }
+                        addLog("SYS", "Retrieved ${list.size} users from directory server.")
                         withContext(Dispatchers.Main) { callback(list) }
                     } else {
+                        addLog("ERROR", "Failed to retrieve directory users: HTTP ${response.code}")
                         withContext(Dispatchers.Main) { callback(emptyList()) }
                     }
                 }
-            } catch (_: Exception) {
+            } catch (e: Exception) {
+                addLog("ERROR", "Connection error retrieving directory: ${e.message}")
                 withContext(Dispatchers.Main) { callback(emptyList()) }
             }
         }
@@ -1521,17 +1525,21 @@ class PhantomViewModel(
             try {
                 client.newCall(request).execute().use { response ->
                     if (response.isSuccessful) {
-                        val arr = JSONArray(response.body?.string() ?: "[]")
+                        val bodyStr = response.body?.string() ?: "[]"
+                        val arr = JSONArray(bodyStr)
                         val list = (0 until arr.length()).mapNotNull { i ->
                             val obj = arr.optJSONObject(i)
                             if (obj != null) Pair(obj.optString("name"), obj.optString("publicKey")) else null
                         }
+                        addLog("SYS", "Retrieved ${list.size} friends from directory.")
                         withContext(Dispatchers.Main) { callback(list) }
                     } else {
+                        addLog("ERROR", "Failed to retrieve friends list: HTTP ${response.code}")
                         withContext(Dispatchers.Main) { callback(emptyList()) }
                     }
                 }
-            } catch (_: Exception) {
+            } catch (e: Exception) {
+                addLog("ERROR", "Connection error retrieving friends: ${e.message}")
                 withContext(Dispatchers.Main) { callback(emptyList()) }
             }
         }
@@ -1554,12 +1562,15 @@ class PhantomViewModel(
                             val obj = outgoingArr.optJSONObject(i)
                             if (obj != null) Pair(obj.optInt("id"), obj.optString("toUser")) else null
                         }
+                        addLog("SYS", "Retrieved friend requests: ${incomingList.size} incoming, ${outgoingList.size} outgoing.")
                         withContext(Dispatchers.Main) { callback(incomingList, outgoingList) }
                     } else {
+                        addLog("ERROR", "Failed to retrieve friend requests: HTTP ${response.code}")
                         withContext(Dispatchers.Main) { callback(emptyList(), emptyList()) }
                     }
                 }
-            } catch (_: Exception) {
+            } catch (e: Exception) {
+                addLog("ERROR", "Connection error retrieving friend requests: ${e.message}")
                 withContext(Dispatchers.Main) { callback(emptyList(), emptyList()) }
             }
         }
@@ -1583,11 +1594,14 @@ class PhantomViewModel(
                         publishPreKeyBundle()
                         syncContactsFromServer()
                     } else if (response.code == 401) {
+                        addLog("ERROR", "Failed to register identity: HTTP 401 Unauthorized (Session Expired)")
                         handleSessionExpired()
+                    } else {
+                        addLog("ERROR", "Failed to register identity: HTTP ${response.code}")
                     }
                 }
             } catch (e: Exception) {
-                addLog("WARNING", "Relay server is currently offline.")
+                addLog("WARNING", "Relay server is currently offline: ${e.message}")
             }
         }
     }
