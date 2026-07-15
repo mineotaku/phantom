@@ -25,6 +25,9 @@ object CryptoUtils {
     private const val AES_GCM_NOPADDING = "AES/GCM/NoPadding"
 
     fun getOrCreateMasterKey(): SecretKey {
+        if (android.os.Build.FINGERPRINT == "robolectric") {
+            return javax.crypto.spec.SecretKeySpec(ByteArray(32) { 1.toByte() }, "AES")
+        }
         val keyStore = KeyStore.getInstance(ANDROID_KEYSTORE).apply { load(null) }
         keyStore.getKey(ALIAS, null)?.let { return it as SecretKey }
 

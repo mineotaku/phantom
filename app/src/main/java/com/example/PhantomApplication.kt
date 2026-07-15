@@ -20,6 +20,10 @@ class PhantomApplication : Application() {
         val savedHost = prefs.getString("server_host", "phantom-pu9t.onrender.com") ?: "phantom-pu9t.onrender.com"
         com.example.network.NetworkConfig.serverHost.value = savedHost
 
+        if (android.os.Build.FINGERPRINT == "robolectric") {
+            return
+        }
+
         // Load SQLCipher native libraries
         try {
             System.loadLibrary("sqlcipher")

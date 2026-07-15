@@ -209,19 +209,7 @@ class PhantomViewModel(
                             // Server Sync
                             registerIdentityOnServer()
                             syncContactsFromServer()
-                            
-                            // Insert Bob for local sandbox testing
-                            repository.insertUser(
-                                RoomChatUser(
-                                    "Bob",
-                                    "Secure connection active",
-                                    "Now",
-                                    0,
-                                    0xFF81C784.toInt(),
-                                    true,
-                                    "id_pub_relayed"
-                                )
-                            )
+                            startPeriodicSync()
                         }
                     }
                 } else {
@@ -263,19 +251,7 @@ class PhantomViewModel(
                     // Server Sync
                     registerIdentityOnServer()
                     syncContactsFromServer()
-                    
-                    // Insert Bob for local sandbox testing
-                    repository.insertUser(
-                        RoomChatUser(
-                            "Bob",
-                            "Secure connection active",
-                            "Now",
-                            0,
-                            0xFF81C784.toInt(),
-                            true,
-                            "id_pub_relayed"
-                        )
-                    )
+                    startPeriodicSync()
                 } else {
                     addLog("SYS", "No active session. Initializing secure registration environment.")
                 }
@@ -397,17 +373,9 @@ class PhantomViewModel(
         viewModelScope.launch {
             isSendingOtp.value = true
             loginErrorMsg.value = null
-            generatedOtpCode.value = (100000..999999).random().toString()
+            
             smtpRelayLogs.clear()
-
-            smtpRelayLogs.add("SYS: Connecting to SMTP Server...")
-            delay(400)
-            smtpRelayLogs.add("OUT: EHLO local.device.host")
-            delay(300)
-            smtpRelayLogs.add("SEC: Establishing secure TLS handshake...")
-            delay(500)
-            smtpRelayLogs.add("SEC: TLS cipher suite ECDHE-RSA-AES256-GCM negotiated.")
-            delay(300)
+            smtpRelayLogs.add("SYS: Connecting to Phantom Relay Server...")
 
             val jsonPayload = JSONObject()
                 .put("email", email)
@@ -1258,6 +1226,7 @@ class PhantomViewModel(
     }
 
     private fun handleSessionExpired() {
+        stopPeriodicSync()
         viewModelScope.launch {
             repository.clearSession()
             isLoggedIn.value = false
@@ -1350,11 +1319,29 @@ class PhantomViewModel(
     }
 
     // --- Sync contact list from the server ---
+    private var syncJob: kotlinx.coroutines.Job? = null
+
+    fun startPeriodicSync() {
+        syncJob?.cancel()
+        syncJob = viewModelScope.launch(Dispatchers.IO) {
+            while (true) {
+                delay(15_000)
+                syncContactsFromServer()
+            }
+        }
+    }
+
+    fun stopPeriodicSync() {
+        syncJob?.cancel()
+        syncJob = null
+    }
+
     fun syncContactsFromServer() {
         viewModelScope.launch(Dispatchers.IO) {
-            addLog("SEC", "Initializing Private Set Intersection (PSI) contact discovery...")
-            addLog("SEC", "Generating local address book SHA-256 Bloom Filter bitset...")
-            val request = buildAuthorizedRequest(getServerUrl("/api/users"))
+            val token = activeSessionToken.value
+            if (token.isBlank()) return@launch
+            addLog("SYS", "Syncing friend contacts...")
+            val request = buildAuthorizedRequest(getServerUrl("/api/friends/list"))
             try {
                 val responseJson = withContext(Dispatchers.IO) {
                     client.newCall(request).execute().use { response ->
@@ -1368,57 +1355,212 @@ class PhantomViewModel(
                         }
                     }
                 }
-                
-                android.util.Log.d("PHANTOM_SYNC", "Raw directory response: $responseJson")
-                addLog("SYS", "Raw synced response: $responseJson")
                 val usersJson = JSONArray(responseJson)
-                val bloomFilterSize = 1024
-                val filterBitSet = java.util.BitSet(bloomFilterSize)
-                
-                // Client builds a Bloom Filter representing all registered users on server
-                for (i in 0 until usersJson.length()) {
-                    val userObj = usersJson.optJSONObject(i) ?: continue
-                    val name = userObj.optString("name")
-                    val hashes = getBloomHashes(name, bloomFilterSize)
-                    for (hash in hashes) {
-                        filterBitSet.set(hash)
-                    }
-                }
-                
-                addLog("SEC", "Bloom filter built with ${usersJson.length()} candidate nodes. Running client membership checks...")
-                
                 val syncedUsers = (0 until usersJson.length()).mapNotNull { index ->
-                    val userJson = usersJson.optJSONObject(index) ?: return@mapNotNull null
-                    val name = userJson.optString("name").takeIf { it.isNotBlank() } ?: return@mapNotNull null
-                    val pubKey = userJson.optString("publicKey")
-                    
-                    // Verify containment in client-side Bloom Filter using all 3 hashes
-                    val hashes = getBloomHashes(name, bloomFilterSize)
-                    val isContained = hashes.all { filterBitSet[it] }
-                    if (isContained) {
-                        RoomChatUser(
-                            name,
-                            "Secure connection active",
-                            "Now",
-                            0,
-                            0xFF4FC3F7.toInt(),
-                            true,
-                            pubKey
-                        )
+                    val obj = usersJson.optJSONObject(index) ?: return@mapNotNull null
+                    val name = obj.optString("name").takeIf { it.isNotBlank() } ?: return@mapNotNull null
+                    val pubKey = obj.optString("publicKey")
+                    RoomChatUser(name, "Secure connection active", "Now", 0, 0xFF4FC3F7.toInt(), true, pubKey)
+                }
+                repository.clearAllMessages()
+                repository.insertUsers(syncedUsers)
+                addLog("SYS", "Synced ${syncedUsers.size} friends from server.")
+            } catch (e: Exception) {
+                // Keep existing contacts if offline
+            }
+        }
+    }
+
+    fun sendFriendRequest(targetUser: String, onComplete: () -> Unit = {}) {
+        viewModelScope.launch(Dispatchers.IO) {
+            val json = JSONObject().put("toUser", targetUser).toString()
+            val body = json.toRequestBody(jsonMediaType)
+            val request = buildAuthorizedRequest(getServerUrl("/api/friends/request"), "POST", body)
+            try {
+                client.newCall(request).execute().use { response ->
+                    if (response.isSuccessful) {
+                        addLog("SYS", "Friend request sent to $targetUser")
+                        withContext(Dispatchers.Main) { onComplete() }
                     } else {
-                        null
+                        val err = response.body?.string() ?: "Unknown error"
+                        addLog("WARNING", "Failed to send friend request: $err")
                     }
-                }.toList()
-                
-                addLog("SEC", "PSI sync complete: matching contact records populated securely without address book exposure.")
-                
-                val myShortName = loginEmail.value.substringBefore("@")
-                val otherUsers = syncedUsers.filter { it.name != myShortName }
-                if (otherUsers.isNotEmpty()) {
-                    repository.insertUsers(otherUsers)
                 }
             } catch (e: Exception) {
-                // Keep Room database values if offline
+                addLog("WARNING", "Network error sending friend request: ${e.message}")
+            }
+        }
+    }
+
+    fun acceptFriendRequest(requestId: Int, onComplete: () -> Unit = {}) {
+        viewModelScope.launch(Dispatchers.IO) {
+            val json = JSONObject().put("requestId", requestId).toString()
+            val body = json.toRequestBody(jsonMediaType)
+            val request = buildAuthorizedRequest(getServerUrl("/api/friends/accept"), "POST", body)
+            try {
+                client.newCall(request).execute().use { response ->
+                    if (response.isSuccessful) {
+                        addLog("SYS", "Friend request accepted")
+                        syncContactsFromServer()
+                        withContext(Dispatchers.Main) { onComplete() }
+                    }
+                }
+            } catch (e: Exception) {
+                addLog("WARNING", "Network error: ${e.message}")
+            }
+        }
+    }
+
+    fun rejectFriendRequest(requestId: Int, onComplete: () -> Unit = {}) {
+        viewModelScope.launch(Dispatchers.IO) {
+            val json = JSONObject().put("requestId", requestId).toString()
+            val body = json.toRequestBody(jsonMediaType)
+            val request = buildAuthorizedRequest(getServerUrl("/api/friends/reject"), "POST", body)
+            try {
+                client.newCall(request).execute().use { response ->
+                    if (response.isSuccessful) {
+                        addLog("SYS", "Friend request rejected")
+                        withContext(Dispatchers.Main) { onComplete() }
+                    }
+                }
+            } catch (e: Exception) {
+                addLog("WARNING", "Network error: ${e.message}")
+            }
+        }
+    }
+
+    fun getIncomingRequests(callback: (List<Pair<Int, String>>) -> Unit) {
+        viewModelScope.launch(Dispatchers.IO) {
+            val request = buildAuthorizedRequest(getServerUrl("/api/friends/requests"))
+            try {
+                client.newCall(request).execute().use { response ->
+                    if (response.isSuccessful) {
+                        val json = JSONObject(response.body?.string() ?: "{}")
+                        val incoming = json.optJSONArray("incoming") ?: JSONArray()
+                        val list = (0 until incoming.length()).mapNotNull { i ->
+                            val obj = incoming.optJSONObject(i)
+                            if (obj != null) Pair(obj.optInt("id"), obj.optString("fromUser")) else null
+                        }
+                        withContext(Dispatchers.Main) { callback(list) }
+                    }
+                }
+            } catch (_: Exception) {}
+        }
+    }
+
+    fun searchUsers(query: String, callback: (List<Pair<String, String>>) -> Unit) {
+        viewModelScope.launch(Dispatchers.IO) {
+            val encoded = java.net.URLEncoder.encode(query, "UTF-8")
+            val request = buildAuthorizedRequest(getServerUrl("/api/users/search?q=$encoded"))
+            try {
+                client.newCall(request).execute().use { response ->
+                    if (response.isSuccessful) {
+                        val arr = JSONArray(response.body?.string() ?: "[]")
+                        val list = (0 until arr.length()).mapNotNull { i ->
+                            val obj = arr.optJSONObject(i)
+                            if (obj != null) Pair(obj.optString("name"), obj.optString("publicKey")) else null
+                        }
+                        withContext(Dispatchers.Main) { callback(list) }
+                    } else {
+                        withContext(Dispatchers.Main) { callback(emptyList()) }
+                    }
+                }
+            } catch (_: Exception) {
+                withContext(Dispatchers.Main) { callback(emptyList()) }
+            }
+        }
+    }
+
+    fun getAvailableUsers(callback: (List<Pair<String, String>>) -> Unit) {
+        viewModelScope.launch(Dispatchers.IO) {
+            val request = buildAuthorizedRequest(getServerUrl("/api/users/available"))
+            try {
+                client.newCall(request).execute().use { response ->
+                    if (response.isSuccessful) {
+                        val arr = JSONArray(response.body?.string() ?: "[]")
+                        val list = (0 until arr.length()).mapNotNull { i ->
+                            val obj = arr.optJSONObject(i)
+                            if (obj != null) Pair(obj.optString("name"), obj.optString("publicKey")) else null
+                        }
+                        withContext(Dispatchers.Main) { callback(list) }
+                    } else {
+                        withContext(Dispatchers.Main) { callback(emptyList()) }
+                    }
+                }
+            } catch (_: Exception) {
+                withContext(Dispatchers.Main) { callback(emptyList()) }
+            }
+        }
+    }
+
+    fun getAllUsersFromServer(callback: (List<Pair<String, String>>) -> Unit) {
+        viewModelScope.launch(Dispatchers.IO) {
+            val request = buildAuthorizedRequest(getServerUrl("/api/users"))
+            try {
+                client.newCall(request).execute().use { response ->
+                    if (response.isSuccessful) {
+                        val arr = JSONArray(response.body?.string() ?: "[]")
+                        val list = (0 until arr.length()).mapNotNull { i ->
+                            val obj = arr.optJSONObject(i)
+                            if (obj != null) Pair(obj.optString("name"), obj.optString("publicKey")) else null
+                        }
+                        withContext(Dispatchers.Main) { callback(list) }
+                    } else {
+                        withContext(Dispatchers.Main) { callback(emptyList()) }
+                    }
+                }
+            } catch (_: Exception) {
+                withContext(Dispatchers.Main) { callback(emptyList()) }
+            }
+        }
+    }
+
+    fun getFriendsListFromServer(callback: (List<Pair<String, String>>) -> Unit) {
+        viewModelScope.launch(Dispatchers.IO) {
+            val request = buildAuthorizedRequest(getServerUrl("/api/friends/list"))
+            try {
+                client.newCall(request).execute().use { response ->
+                    if (response.isSuccessful) {
+                        val arr = JSONArray(response.body?.string() ?: "[]")
+                        val list = (0 until arr.length()).mapNotNull { i ->
+                            val obj = arr.optJSONObject(i)
+                            if (obj != null) Pair(obj.optString("name"), obj.optString("publicKey")) else null
+                        }
+                        withContext(Dispatchers.Main) { callback(list) }
+                    } else {
+                        withContext(Dispatchers.Main) { callback(emptyList()) }
+                    }
+                }
+            } catch (_: Exception) {
+                withContext(Dispatchers.Main) { callback(emptyList()) }
+            }
+        }
+    }
+
+    fun getFriendRequests(callback: (incoming: List<Pair<Int, String>>, outgoing: List<Pair<Int, String>>) -> Unit) {
+        viewModelScope.launch(Dispatchers.IO) {
+            val request = buildAuthorizedRequest(getServerUrl("/api/friends/requests"))
+            try {
+                client.newCall(request).execute().use { response ->
+                    if (response.isSuccessful) {
+                        val json = JSONObject(response.body?.string() ?: "{}")
+                        val incomingArr = json.optJSONArray("incoming") ?: JSONArray()
+                        val incomingList = (0 until incomingArr.length()).mapNotNull { i ->
+                            val obj = incomingArr.optJSONObject(i)
+                            if (obj != null) Pair(obj.optInt("id"), obj.optString("fromUser")) else null
+                        }
+                        val outgoingArr = json.optJSONArray("outgoing") ?: JSONArray()
+                        val outgoingList = (0 until outgoingArr.length()).mapNotNull { i ->
+                            val obj = outgoingArr.optJSONObject(i)
+                            if (obj != null) Pair(obj.optInt("id"), obj.optString("toUser")) else null
+                        }
+                        withContext(Dispatchers.Main) { callback(incomingList, outgoingList) }
+                    } else {
+                        withContext(Dispatchers.Main) { callback(emptyList(), emptyList()) }
+                    }
+                }
+            } catch (_: Exception) {
+                withContext(Dispatchers.Main) { callback(emptyList(), emptyList()) }
             }
         }
     }

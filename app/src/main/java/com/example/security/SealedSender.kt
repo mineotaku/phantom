@@ -79,6 +79,24 @@ object SealedSender {
     private const val AES_GCM = "AES/GCM/NoPadding"
     private const val HKDF_INFO = "PhantomSealedSender"
 
+    private fun getClassicalPublicKey(keyBytes: ByteArray): ByteArray {
+        return try {
+            val (classical, _) = X3DHProtocol.deserializeHybridPublic(keyBytes)
+            classical
+        } catch (e: Exception) {
+            keyBytes
+        }
+    }
+
+    private fun getClassicalPrivateKey(keyBytes: ByteArray): ByteArray {
+        return try {
+            val (classical, _) = X3DHProtocol.deserializeHybridPublic(keyBytes)
+            classical
+        } catch (e: Exception) {
+            keyBytes
+        }
+    }
+
     fun sealMessage(
         recipientUserId: String,
         senderCertificate: SenderCertificate,
@@ -92,7 +110,7 @@ object SealedSender {
 
         // Derive ECDH shared secret
         val keyFactory = KeyFactory.getInstance(KEY_ALGORITHM)
-        val recipientPub = keyFactory.generatePublic(X509EncodedKeySpec(recipientIdentityKey))
+        val recipientPub = keyFactory.generatePublic(X509EncodedKeySpec(getClassicalPublicKey(recipientIdentityKey)))
         val keyAgreement = KeyAgreement.getInstance("ECDH")
         keyAgreement.init(ephemeralKeyPair.private)
         keyAgreement.doPhase(recipientPub, true)
@@ -150,8 +168,8 @@ object SealedSender {
 
         // Derive ECDH shared secret
         val keyFactory = KeyFactory.getInstance(KEY_ALGORITHM)
-        val recipientPriv = keyFactory.generatePrivate(PKCS8EncodedKeySpec(recipientIdentityPrivate))
-        val ephemeralPub = keyFactory.generatePublic(X509EncodedKeySpec(ephemeralPubBytes))
+        val recipientPriv = keyFactory.generatePrivate(PKCS8EncodedKeySpec(getClassicalPrivateKey(recipientIdentityPrivate)))
+        val ephemeralPub = keyFactory.generatePublic(X509EncodedKeySpec(getClassicalPublicKey(ephemeralPubBytes)))
 
         val keyAgreement = KeyAgreement.getInstance("ECDH")
         keyAgreement.init(recipientPriv)
@@ -179,7 +197,7 @@ object SealedSender {
 
     fun verifySenderCertificate(certificate: SenderCertificate, serverPublicKey: ByteArray): Boolean {
         val keyFactory = KeyFactory.getInstance(KEY_ALGORITHM)
-        val serverPub = keyFactory.generatePublic(X509EncodedKeySpec(serverPublicKey))
+        val serverPub = keyFactory.generatePublic(X509EncodedKeySpec(getClassicalPublicKey(serverPublicKey)))
 
         val sig = Signature.getInstance("SHA256withECDSA")
         sig.initVerify(serverPub)

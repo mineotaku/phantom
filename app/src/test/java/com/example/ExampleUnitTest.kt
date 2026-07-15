@@ -106,12 +106,12 @@ class ExampleUnitTest {
   fun testDuressPinHashing() {
     val context = ApplicationProvider.getApplicationContext<Context>()
     
-    DuressPin.saveAppLockPin(context, "1234")
+    DuressPin.storeRealPin(context, "1234")
     assertTrue(DuressPin.isAppLockEnabled(context))
-    assertTrue(DuressPin.verifyAppLockPin(context, "1234"))
-    assertFalse(DuressPin.verifyAppLockPin(context, "9999"))
+    assertTrue(DuressPin.verifyRealPin(context, "1234"))
+    assertFalse(DuressPin.verifyRealPin(context, "9999"))
 
-    DuressPin.saveDuressPin(context, "4321")
+    DuressPin.storeDuressPin(context, "4321")
     assertTrue(DuressPin.isEnabled(context))
     assertTrue(DuressPin.verifyDuressPin(context, "4321"))
     assertFalse(DuressPin.verifyDuressPin(context, "1111"))

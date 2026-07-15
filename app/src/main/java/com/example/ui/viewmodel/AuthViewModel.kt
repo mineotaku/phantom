@@ -37,17 +37,9 @@ class AuthViewModel(private val repository: PhantomRepository) : ViewModel() {
         viewModelScope.launch {
             isSendingOtp.value = true
             loginErrorMsg.value = null
-            generatedOtpCode.value = (100000..999999).random().toString()
+            
             smtpRelayLogs.clear()
-
-            smtpRelayLogs.add("SYS: Connecting to SMTP Server...")
-            delay(400)
-            smtpRelayLogs.add("OUT: EHLO local.device.host")
-            delay(300)
-            smtpRelayLogs.add("SEC: Establishing secure TLS handshake...")
-            delay(500)
-            smtpRelayLogs.add("SEC: TLS cipher suite ECDHE-RSA-AES256-GCM negotiated.")
-            delay(300)
+            smtpRelayLogs.add("SYS: Connecting to Phantom Relay Server...")
 
             val jsonPayload = JSONObject()
                 .put("email", email)

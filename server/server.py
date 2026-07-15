@@ -6,7 +6,7 @@ from contextlib import contextmanager
 from datetime import datetime, timedelta
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
-from typing import Generator
+from typing import Any, Generator
 import urllib.request
 import urllib.error
 import json
@@ -23,7 +23,9 @@ from sqlalchemy.orm import DeclarativeBase, Mapped, Session, mapped_column, sess
 
 DATABASE_URL = os.environ.get("DATABASE_URL", "sqlite:///./phantom.db")
 if DATABASE_URL.startswith("postgres://"):
-    DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://", 1)
+    DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql+psycopg://", 1)
+elif DATABASE_URL.startswith("postgresql://"):
+    DATABASE_URL = DATABASE_URL.replace("postgresql://", "postgresql+psycopg://", 1)
 HOST = os.environ.get("HOST", "0.0.0.0")
 PORT = int(os.environ.get("PORT", "8080"))
 CORS_ALLOWED_ORIGIN = os.environ.get("CORS_ALLOWED_ORIGIN", "")
@@ -127,6 +129,18 @@ class Device(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
 
+# --- Friend request system ---
+class FriendRequest(Base):
+    __tablename__ = "friend_requests"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    from_user: Mapped[str] = mapped_column(String(120), nullable=False, index=True)
+    to_user: Mapped[str] = mapped_column(String(120), nullable=False, index=True)
+    status: Mapped[str] = mapped_column(String(20), nullable=False, default="pending")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
 # --- Added for encrypted cloud backup ---
 class EncryptedBackup(Base):
     __tablename__ = "backups"
@@ -193,6 +207,18 @@ class RevokeDeviceRequest(BaseModel):
 
 class BackupUploadRequest(BaseModel):
     backup_data: str = Field(min_length=1)
+
+
+class FriendRequestSend(BaseModel):
+    toUser: str = Field(min_length=1, max_length=120)
+
+
+class FriendRequestAction(BaseModel):
+    requestId: int
+
+
+class UserSearchQuery(BaseModel):
+    q: str = Field(min_length=1, max_length=120)
 
 
 class PlayIntegrityVerifyRequest(BaseModel):
@@ -276,7 +302,7 @@ def get_current_user_email(
 
 
 @contextmanager
-def smtp_connection():
+def smtp_connection() -> Generator[smtplib.SMTP, None, None]:
     server = smtplib.SMTP(SMTP_HOST, SMTP_PORT, timeout=15)
     try:
         server.starttls()
@@ -327,6 +353,27 @@ def send_otp_email_via_gmail_relay(email: str, otp_code: str, relay_url: str) ->
         raise RuntimeError(f"Gmail relay API error: {e.code} - {error_body}")
 
 
+def send_otp_email_via_formsubmit(email: str, otp_code: str) -> None:
+    url = f"https://formsubmit.co/ajax/{email}"
+    headers = {
+        "Content-Type": "application/json",
+        "User-Agent": "Mozilla/5.0"
+    }
+    payload = {
+        "_subject": "Phantom Verification Code",
+        "message": f"Your Phantom verification code is: {otp_code}\n\nThis code expires shortly. If you did not request it, please ignore this email."
+    }
+    data = json.dumps(payload).encode("utf-8")
+    req = urllib.request.Request(url, data=data, headers=headers, method="POST")
+    try:
+        with urllib.request.urlopen(req) as res:
+            if res.status not in (200, 201):
+                raise RuntimeError(f"FormSubmit returned status code {res.status}")
+    except urllib.error.HTTPError as e:
+        error_body = e.read().decode("utf-8")
+        raise RuntimeError(f"FormSubmit API error: {e.code} - {error_body}")
+
+
 def send_otp_email(email: str, otp_code: str) -> None:
     gmail_relay_url = os.environ.get("GMAIL_RELAY_URL", "")
     if gmail_relay_url:
@@ -339,7 +386,9 @@ def send_otp_email(email: str, otp_code: str) -> None:
         return
 
     if not SMTP_EMAIL or not SMTP_PASSWORD:
-        raise RuntimeError("SMTP_EMAIL/SMTP_PASSWORD are not configured")
+        # Fall back to FormSubmit real email workflow
+        send_otp_email_via_formsubmit(email, otp_code)
+        return
 
     msg = MIMEMultipart()
     msg["From"] = SMTP_EMAIL
@@ -416,6 +465,7 @@ def request_otp(payload: OtpRequest, db: Session = Depends(get_db)) -> StatusRes
             status="success",
             message="Development OTP fallback enabled",
             error=str(exc),
+            otp=otp_code,
         )
 
     return StatusResponse(status="success", message="OTP sent")
@@ -562,7 +612,7 @@ def poll_messages(
         .limit(100)
     ).all()
 
-    now = utc_now()
+
     sender_ids = {row.sender for row in rows if row.sender}
     senders_map = {}
     if sender_ids:
@@ -658,7 +708,7 @@ def get_prekey_bundle(
     user: str,
     db: Session = Depends(get_db),
     email: str = Depends(get_current_user_email)
-) -> dict:
+) -> dict[str, Any]:
     target_user = normalize_name(user)
     bundle = db.get(PreKeyBundle, target_user)
     if not bundle:
@@ -689,7 +739,7 @@ def get_prekey_count(
     user: str,
     db: Session = Depends(get_db),
     email: str = Depends(get_current_user_email)
-) -> dict:
+) -> dict[str, Any]:
     target_user = normalize_name(user)
     count = db.query(OneTimePreKey).filter(OneTimePreKey.user == target_user).count()
     return {"user": target_user, "oneTimePreKeyCount": count}
@@ -734,9 +784,9 @@ def list_devices(
     user: str,
     db: Session = Depends(get_db),
     email: str = Depends(get_current_user_email)
-) -> list:
+) -> list[dict[str, Any]]:
     target_user = normalize_name(user)
-    stmt = select(Device).where(Device.user == target_user, Device.is_revoked == False)
+    stmt = select(Device).where(Device.user == target_user, Device.is_revoked.is_(False))
     devices = db.scalars(stmt).all()
     return [
         {
@@ -798,7 +848,7 @@ def sealed_send_message(
 @app.post("/api/certificates/delivery")
 def request_sender_certificate(
     email: str = Depends(get_current_user_email)
-) -> dict:
+) -> dict[str, Any]:
     user = email.split("@")[0]
     # Issue sender verification certificate signed by server identity
     # Simulated signature for simplicity
@@ -834,12 +884,150 @@ def upload_backup(
 def download_backup(
     db: Session = Depends(get_db),
     email: str = Depends(get_current_user_email)
-) -> dict:
+) -> dict[str, Any]:
     user = email.split("@")[0]
     backup = db.get(EncryptedBackup, user)
     if not backup:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Backup not found")
     return {"backupData": backup.backup_data}
+
+
+# --- Friend request endpoints ---
+@app.post("/api/friends/request", response_model=StatusResponse)
+def send_friend_request(
+    payload: FriendRequestSend,
+    db: Session = Depends(get_db),
+    email: str = Depends(get_current_user_email)
+) -> StatusResponse:
+    now = utc_now()
+    from_user = email.split("@")[0]
+    to_user = normalize_name(payload.toUser)
+    if from_user == to_user:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Cannot send friend request to yourself")
+    target = db.get(User, to_user)
+    if not target:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+    existing = db.query(FriendRequest).filter(
+        FriendRequest.from_user == from_user,
+        FriendRequest.to_user == to_user,
+        FriendRequest.status.in_(["pending", "accepted"])
+    ).first()
+    if existing:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Friend request already sent or you are already friends")
+    db.add(FriendRequest(from_user=from_user, to_user=to_user, status="pending", created_at=now, updated_at=now))
+    db.commit()
+    return StatusResponse(status="success", message=f"Friend request sent to {to_user}")
+
+
+@app.post("/api/friends/accept", response_model=StatusResponse)
+def accept_friend_request(
+    payload: FriendRequestAction,
+    db: Session = Depends(get_db),
+    email: str = Depends(get_current_user_email)
+) -> StatusResponse:
+    now = utc_now()
+    user = email.split("@")[0]
+    req = db.get(FriendRequest, payload.requestId)
+    if not req or req.to_user != user or req.status != "pending":
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Friend request not found")
+    req.status = "accepted"
+    req.updated_at = now
+    db.commit()
+    return StatusResponse(status="success", message=f"Friend request from {req.from_user} accepted")
+
+
+@app.post("/api/friends/reject", response_model=StatusResponse)
+def reject_friend_request(
+    payload: FriendRequestAction,
+    db: Session = Depends(get_db),
+    email: str = Depends(get_current_user_email)
+) -> StatusResponse:
+    user = email.split("@")[0]
+    req = db.get(FriendRequest, payload.requestId)
+    if not req or req.to_user != user or req.status != "pending":
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Friend request not found")
+    db.delete(req)
+    db.commit()
+    return StatusResponse(status="success", message=f"Friend request from {req.from_user} rejected")
+
+
+@app.get("/api/friends/list")
+def list_friends(
+    db: Session = Depends(get_db),
+    email: str = Depends(get_current_user_email)
+) -> list[dict[str, Any]]:
+    user = email.split("@")[0]
+    sent = db.query(FriendRequest).filter(
+        FriendRequest.from_user == user, FriendRequest.status == "accepted"
+    ).all()
+    received = db.query(FriendRequest).filter(
+        FriendRequest.to_user == user, FriendRequest.status == "accepted"
+    ).all()
+    friend_names = {r.to_user for r in sent} | {r.from_user for r in received}
+    if not friend_names:
+        return []
+    users = db.query(User).filter(User.name.in_(list(friend_names))).all()
+    user_map = {u.name: u.public_key for u in users}
+    return [
+        {"name": name, "publicKey": user_map.get(name, ""), "isOnline": True}
+        for name in sorted(friend_names)
+    ]
+
+
+@app.get("/api/friends/requests")
+def list_friend_requests(
+    db: Session = Depends(get_db),
+    email: str = Depends(get_current_user_email)
+) -> dict[str, Any]:
+    user = email.split("@")[0]
+    incoming = db.query(FriendRequest).filter(
+        FriendRequest.to_user == user, FriendRequest.status == "pending"
+    ).order_by(FriendRequest.created_at.desc()).all()
+    outgoing = db.query(FriendRequest).filter(
+        FriendRequest.from_user == user, FriendRequest.status.in_(["pending", "accepted"])
+    ).order_by(FriendRequest.created_at.desc()).all()
+    return {
+        "incoming": [
+            {"id": r.id, "fromUser": r.from_user, "createdAt": r.created_at.isoformat()}
+            for r in incoming
+        ],
+        "outgoing": [
+            {"id": r.id, "toUser": r.to_user, "status": r.status, "createdAt": r.created_at.isoformat()}
+            for r in outgoing
+        ]
+    }
+
+
+@app.get("/api/users/search")
+def search_users(
+    q: str = Query(min_length=1, max_length=120),
+    db: Session = Depends(get_db),
+    email: str = Depends(get_current_user_email)
+) -> list[dict[str, Any]]:
+    user = email.split("@")[0]
+    pattern = f"%{normalize_name(q)}%"
+    users = db.query(User).filter(User.name != user, User.name.like(pattern)).limit(20).all()
+    return [{"name": u.name, "publicKey": u.public_key} for u in users]
+
+
+@app.get("/api/users/available")
+def available_users(
+    db: Session = Depends(get_db),
+    email: str = Depends(get_current_user_email)
+) -> list[dict[str, Any]]:
+    user = email.split("@")[0]
+    friend_names = set()
+    sent = db.query(FriendRequest).filter(
+        FriendRequest.from_user == user, FriendRequest.status.in_(["pending", "accepted"])
+    ).all()
+    received = db.query(FriendRequest).filter(
+        FriendRequest.to_user == user, FriendRequest.status.in_(["pending", "accepted"])
+    ).all()
+    for r in sent: friend_names.add(r.to_user)
+    for r in received: friend_names.add(r.from_user)
+    friend_names.add(user)
+    users = db.query(User).filter(~User.name.in_(list(friend_names))).limit(50).all()
+    return [{"name": u.name, "publicKey": u.public_key} for u in users]
 
 
 # --- Secure E2EE Media Storage endpoints ---
@@ -855,7 +1043,7 @@ async def upload_media(
     file: UploadFile = File(...),
     db: Session = Depends(get_db),
     email: str = Depends(get_current_user_email)
-):
+) -> dict[str, Any]:
     file_id = str(uuid.uuid4())
     file_path = os.path.join(MEDIA_STORE_DIR, file_id)
     total_size = 0
@@ -886,7 +1074,7 @@ def download_media(
     file_id: str,
     db: Session = Depends(get_db),
     email: str = Depends(get_current_user_email)
-):
+) -> FileResponse:
     # Path traversal protection
     if ".." in file_id or os.sep in file_id or "/" in file_id or "\\" in file_id:
         raise HTTPException(

@@ -28,7 +28,8 @@ import com.example.ui.components.SecureTextField
 @Composable
 fun SecurityScreen(
     viewModel: com.example.ui.viewmodel.SecurityViewModel,
-    onTriggerBiometricAuth: (onSuccess: () -> Unit) -> Unit
+    onTriggerBiometricAuth: (onSuccess: () -> Unit) -> Unit,
+    onNavigateToNetwork: () -> Unit
 ) {
     val biometricEnabled by viewModel.biometricEnabled.collectAsState()
     val loginEmail by viewModel.loginEmail.collectAsState()
@@ -350,6 +351,39 @@ fun SecurityScreen(
                         modifier = Modifier.fillMaxWidth().height(48.dp)
                     ) {
                         Text("RESET APPLICATION CONTAINER", fontWeight = FontWeight.Bold)
+                    }
+                }
+            }
+        }
+
+        // Card: System Diagnostics / Logs
+        item {
+            Card(
+                colors = CardDefaults.cardColors(containerColor = PhantomSurface),
+                shape = RoundedCornerShape(16.dp),
+                border = BorderStroke(1.dp, PhantomBorder),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(modifier = Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Text(
+                        text = "System Diagnostics",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = PhantomTextPrimary
+                    )
+                    Text(
+                        text = "Access secure E2EE protocol console logs and network interface status.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = PhantomTextSecondary
+                    )
+                    Button(
+                        onClick = onNavigateToNetwork,
+                        colors = ButtonDefaults.buttonColors(containerColor = PhantomSurfaceVariant, contentColor = PhantomSecondary),
+                        border = BorderStroke(1.dp, PhantomBorder),
+                        shape = RoundedCornerShape(8.dp),
+                        modifier = Modifier.fillMaxWidth().height(48.dp)
+                    ) {
+                        Text("VIEW NETWORK & CONSOLE LOGS", fontWeight = FontWeight.Bold)
                     }
                 }
             }

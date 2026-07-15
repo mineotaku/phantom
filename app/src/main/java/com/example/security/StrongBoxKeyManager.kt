@@ -56,7 +56,9 @@ object StrongBoxKeyManager {
             }
         }
 
-        specBuilder.setIsStrongBoxBacked(false)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+            specBuilder.setIsStrongBoxBacked(false)
+        }
         keyGenerator.init(specBuilder.build())
         return keyGenerator.generateKey()
     }
@@ -80,7 +82,9 @@ object StrongBoxKeyManager {
             }
         }
 
-        specBuilder.setIsStrongBoxBacked(false)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+            specBuilder.setIsStrongBoxBacked(false)
+        }
         keyPairGenerator.initialize(specBuilder.build())
         return keyPairGenerator.generateKeyPair()
     }

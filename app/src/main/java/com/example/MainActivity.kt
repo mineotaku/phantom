@@ -192,7 +192,14 @@ fun MainScaffold(
                     icon = { Icon(if (currentRoute == "messages") Icons.Filled.Forum else Icons.Outlined.Forum, contentDescription = "Chats") },
                     label = { Text("Chats") }
                 )
-                // Tab 1: Profile
+                // Tab 1: Friends
+                NavigationBarItem(
+                    selected = currentRoute == "friends",
+                    onClick = { navController.navigate("friends") { launchSingleTop = true } },
+                    icon = { Icon(if (currentRoute == "friends") Icons.Filled.PersonAdd else Icons.Outlined.PersonAdd, contentDescription = "Friends") },
+                    label = { Text("Friends") }
+                )
+                // Tab 2: Profile
                 NavigationBarItem(
                     selected = currentRoute == "identity",
                     onClick = { navController.navigate("identity") { launchSingleTop = true } },
@@ -254,6 +261,9 @@ fun MainScaffold(
                     startDestination = "messages",
                     modifier = Modifier.fillMaxSize()
                 ) {
+                    composable("friends") {
+                        FriendsScreen(viewModel = viewModel, chatViewModel = chatViewModel, navController = navController)
+                    }
                     composable("identity") {
                         IdentityScreen(viewModel = identityViewModel)
                     }
@@ -269,7 +279,8 @@ fun MainScaffold(
                     composable("security") {
                         SecurityScreen(
                             viewModel = securityViewModel,
-                            onTriggerBiometricAuth = onTriggerBiometricAuth
+                            onTriggerBiometricAuth = onTriggerBiometricAuth,
+                            onNavigateToNetwork = { navController.navigate("network") }
                         )
                     }
                 }
